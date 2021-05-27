@@ -44,15 +44,21 @@ Functions for loading the WASM backend
 */
 
 p5.prototype._cs_backend = null
-p5.prototype._cs_wasmModule = null;
+p5.prototype._cs_wasmInstance = null;
 p5.prototype._cs_backendLoaded = false;
+p5.prototype._cs_wasmMemory = null;
 
 p5.prototype.loadColorSpaces = async function() {
-  // TODO load WASM module dynamically with shared memory
-  this._cs_wasmModule = await init();
+  const wasmURL = new URL("colorspaces_bg.wasm", import.meta.url);
 
-  p5.prototype._cs_backend = {};
-  Object.assign(p5.prototype._cs_backend, backend);
+  const wasmModule = await WebAssembly.compileStreaming(fetch(wasmURL));
+
+  // TODO: dynamically figure out memory limits
+  this._cs_wasmMemory = new WebAssembly.Memory({initial: 17, maximum: 16384, shared: true})
+  this._cs_wasmInstance = await init(wasmModule, this._cs_wasmMemory);
+
+  this._cs_backend = {};
+  Object.assign(this._cs_backend, backend);
 
   this._cs_backendLoaded = true;
 }
