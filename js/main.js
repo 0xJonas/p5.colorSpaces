@@ -1,6 +1,7 @@
 "use strict"
 
 import init, * as backend from "../pkg/colorspaces.js";
+import * as msg from "./messages.js";
 
 /*
 Error messages and logging
@@ -47,18 +48,32 @@ p5.prototype._cs_backend = null
 p5.prototype._cs_wasmInstance = null;
 p5.prototype._cs_backendLoaded = false;
 p5.prototype._cs_wasmMemory = null;
+p5.prototype._cs_threads = [];
 
 p5.prototype.loadColorSpaces = async function() {
   const wasmURL = new URL("colorspaces_bg.wasm", import.meta.url);
 
   const wasmModule = await WebAssembly.compileStreaming(fetch(wasmURL));
+  const wasmMemory = new WebAssembly.Memory({initial: 17, maximum: 16384, shared: true});
 
   // TODO: dynamically figure out memory limits
-  this._cs_wasmMemory = new WebAssembly.Memory({initial: 17, maximum: 16384, shared: true})
+  this._cs_wasmMemory = wasmMemory;
   this._cs_wasmInstance = await init(wasmModule, this._cs_wasmMemory);
 
   this._cs_backend = {};
   Object.assign(this._cs_backend, backend);
+
+  const numWorkers = navigator.hardwareConcurrency;
+  const workerURL = new URL("worker.js", import.meta.url);
+  for (let i = 0; i < numWorkers; i++) {
+    const worker = new Worker(workerURL, {name: "thread " + i, type: "module"});
+    worker.postMessage({
+      id: msg.MSG_WASM_MODULE,
+      module: wasmModule,
+      memory: wasmMemory
+    })
+    this._cs_threads.push(worker);
+  }
 
   this._cs_backendLoaded = true;
 }
@@ -70,7 +85,7 @@ p5.prototype.registerPromisePreload({
 });
 
 p5.prototype._cs_checkIfBackendLoaded = function() {
-  if(!this._cs_backendLoaded) {
+  if (!this._cs_backendLoaded) {
     throw new ColorSpacesError("p5.colorspaces backend is not loaded. Please add 'loadColorSpaces()' to your preload() function.");
   }
 }
@@ -101,6 +116,26 @@ Conversion functions
 
 p5.prototype._cs_currentColorSpace = false;
 
+p5.prototype._cs_allocation_ptr = 0;
+p5.prototype._cs_allocation_len = 0;
+
+p5.prototype._cs_ensureAllocationSize = function (len) {
+  if (this._cs_allocation_ptr != 0 && this._cs_allocation_len < len) {
+    this._cs_backend.deallocate_buffer(this._cs_allocation);
+  }
+
+  this._cs_allocation_ptr = this._cs_backend.allocate_buffer(len);
+  this._cs_allocation_len = len;
+}
+
+p5.prototype._cs_deallocate = function () {
+  if (this._cs_allocation) {
+    this._cs_backend.deallocate_buffer(this._cs_allocation_ptr, this._cs_allocation_size);
+  }
+}
+
+p5.prototype.registerMethod("remove", p5.prototype._cs_deallocate);
+
 function convertImageData(imageData, conversionFunc, backend) {
   const imageArray = new Uint8Array(imageData.data.buffer);
 
@@ -109,11 +144,11 @@ function convertImageData(imageData, conversionFunc, backend) {
   const strippedLength = imageArray.length - stripSize;
   let allocation = null;
 
-  try{
+  try {
     allocation = backend.allocate_buffer(blockSize);
     const wasmMemoryView = backend.get_memory_view(allocation);
 
-    for(let i = 0; i < strippedLength; i += blockSize) {
+    for (let i = 0; i < strippedLength; i += blockSize) {
       const section = imageArray.subarray(i, i + blockSize);
       wasmMemoryView.set(section);
       conversionFunc(allocation);
@@ -138,19 +173,25 @@ Converts the whole canvas into a given color space.
 p5.prototype.enterColorSpace = function(colorSpace, whitePoint) {
   this._cs_checkIfBackendLoaded();
 
-  const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
-
   let conversionFunc;
-  switch(colorSpace) {
+  switch (colorSpace) {
     case CIEXYZ:
-      conversionFunc = this._cs_backend.convert_memory_srgb_to_xyz;
+      conversionFunc = "convert_memory_srgb_to_xyz";
       break;
     case LINEAR_RGB:
-      conversionFunc = this._cs_backend.convert_memory_srgb_to_linear_rgb;
+      conversionFunc = "convert_memory_srgb_to_linear_rgb";
       break;
   }
 
-  convertImageData(imageData, conversionFunc, this._cs_backend);
+  const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
+  const imageArray = new Uint8Array(imageData.data.buffer);
+  this._cs_ensureAllocationSize(imageArray.length);
+
+  const wasmMemoryView = this._cs_backend.get_memory_view(this._cs_allocation_ptr, this._cs_allocation_len);
+  wasmMemoryView.set(imageArray);
+
+  this._cs_backend[conversionFunc](this._cs_allocation_ptr, 0, imageArray.length);
+  imageArray.set(wasmMemoryView);
 
   this.drawingContext.putImageData(imageData, 0, 0);
 
@@ -163,24 +204,30 @@ Converts the canvas back to sRGB.
 p5.prototype.exitColorSpace = function() {
   this._cs_checkIfBackendLoaded();
 
-  if(this._cs_currentColorSpace == this.SRGB){
+  if (this._cs_currentColorSpace == this.SRGB){
     logMessage("exitColorSpace() was called while not inside of a color space.", LEVEL_WARN);
     return;
   }
 
-  const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
-
   let conversionFunc;
-  switch(this._cs_currentColorSpace) {
+  switch (this._cs_currentColorSpace) {
     case CIEXYZ:
-      conversionFunc = this._cs_backend.convert_memory_xyz_to_srgb;
+      conversionFunc = "convert_memory_xyz_to_srgb";
       break;
     case LINEAR_RGB:
-      conversionFunc = this._cs_backend.convert_memory_linear_rgb_to_srgb;
+      conversionFunc = "convert_memory_linear_rgb_to_srgb";
       break;
   }
 
-  convertImageData(imageData, conversionFunc, this._cs_backend);
+  const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
+  const imageArray = new Uint8Array(imageData.data.buffer);
+  this._cs_ensureAllocationSize(imageArray.length);
+
+  const wasmMemoryView = this._cs_backend.get_memory_view(this._cs_allocation_ptr, this._cs_allocation_len);
+  wasmMemoryView.set(imageArray);
+
+  this._cs_backend[conversionFunc](this._cs_allocation_ptr, 0, imageArray.length);
+  imageArray.set(wasmMemoryView);
 
   this.drawingContext.putImageData(imageData, 0, 0);
 

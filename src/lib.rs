@@ -26,39 +26,32 @@ impl<T: TristimulusColor> CompareMargin<T> for T {
 }
 
 #[wasm_bindgen]
-pub struct Allocation {
-    ptr: *mut u8,
-    len: usize
-}
-
-#[wasm_bindgen]
-pub fn allocate_buffer(len: usize) -> Allocation {
+pub fn allocate_buffer(len: usize) -> *mut u8 {
     let layout = Layout::array::<u8>(len).unwrap();
-    let ptr = unsafe {
+    unsafe {
         alloc(layout)
-    };
-    Allocation { ptr: ptr, len: len}
-}
-
-#[wasm_bindgen]
-pub fn deallocate_buffer(allocation: Allocation) {
-    let layout = Layout::array::<u8>(allocation.len).unwrap();
-    unsafe {
-        dealloc(allocation.ptr, layout);
     }
 }
 
 #[wasm_bindgen]
-pub fn get_memory_view(allocation: &Allocation) -> Uint8Array {
+pub fn deallocate_buffer(ptr: *mut u8, len: usize) {
+    let layout = Layout::array::<u8>(len).unwrap();
     unsafe {
-        Uint8Array::view_mut_raw(allocation.ptr, allocation.len)
+        dealloc(ptr, layout);
     }
 }
 
 #[wasm_bindgen]
-pub fn convert_memory_srgb_to_xyz(allocation: &Allocation) {
+pub fn get_memory_view(ptr: *mut u8, len: usize) -> Uint8Array {
+    unsafe {
+        Uint8Array::view_mut_raw(ptr, len)
+    }
+}
+
+#[wasm_bindgen]
+pub fn convert_memory_srgb_to_xyz(ptr: *mut u8, offset: usize, len: usize) {
     let data: &mut [u8] = unsafe {
-        std::slice::from_raw_parts_mut(allocation.ptr, allocation.len)
+        std::slice::from_raw_parts_mut(ptr.add(offset), len)
     };
 
     for i in 0..(data.len() / 4) {
@@ -85,9 +78,9 @@ pub fn convert_memory_srgb_to_xyz(allocation: &Allocation) {
 }
 
 #[wasm_bindgen]
-pub fn convert_memory_xyz_to_srgb(allocation: &Allocation) {
+pub fn convert_memory_xyz_to_srgb(ptr: *mut u8, offset: usize, len: usize) {
     let data: &mut [u8] = unsafe {
-        std::slice::from_raw_parts_mut(allocation.ptr, allocation.len)
+        std::slice::from_raw_parts_mut(ptr.add(offset), len)
     };
 
     for i in 0..(data.len() / 4) {
@@ -104,9 +97,9 @@ pub fn convert_memory_xyz_to_srgb(allocation: &Allocation) {
 }
 
 #[wasm_bindgen]
-pub fn convert_memory_srgb_to_linear_rgb(allocation: &Allocation) {
+pub fn convert_memory_srgb_to_linear_rgb(ptr: *mut u8, offset: usize, len: usize) {
     let data: &mut [u8] = unsafe {
-        std::slice::from_raw_parts_mut(allocation.ptr, allocation.len)
+        std::slice::from_raw_parts_mut(ptr.add(offset), len)
     };
 
     for i in 0..(data.len() / 4) {
@@ -123,9 +116,9 @@ pub fn convert_memory_srgb_to_linear_rgb(allocation: &Allocation) {
 }
 
 #[wasm_bindgen]
-pub fn convert_memory_linear_rgb_to_srgb(allocation: &Allocation) {
+pub fn convert_memory_linear_rgb_to_srgb(ptr: *mut u8, offset: usize, len: usize) {
     let data: &mut [u8] = unsafe {
-        std::slice::from_raw_parts_mut(allocation.ptr, allocation.len)
+        std::slice::from_raw_parts_mut(ptr.add(offset), len)
     };
 
     for i in 0..(data.len() / 4) {
