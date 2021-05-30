@@ -3,6 +3,8 @@ function preload() {
   loadColorSpaces();
 }
 
+let frameRates = new Array(10).fill(0.0);
+
 function setup() {
   createCanvas(800, 600);
   noLoop();
@@ -30,6 +32,11 @@ function draw() {
   rect(500, 200, 200, 200);
 
   fill(0)
-  text(frameRate(), 50.0, 50.0)
+  const currentFrameRate = frameRate();
+  frameRates.push(currentFrameRate);
+  frameRates.shift();
+  text(currentFrameRate, 50.0, 50.0)
+  text("max: " + Math.max(...frameRates), 50.0, 65.0)
+  text("min: " + Math.min(...frameRates), 50.0, 80.0)
   //console.log(frameRate());
 }

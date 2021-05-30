@@ -51,6 +51,13 @@ p5.prototype._cs_wasmMemory = null;
 p5.prototype._cs_threads = [];
 p5.prototype._cs_semaphore = null;
 
+/*
+Initializes a worker thread by sending it the WASM module and memory.
+
+When a worker thread successfully instatiated a module, it responds with
+a MSG_ACK_WASM_MODULE message. This function exists to make the callback 
+from this message await-able.
+*/
 function initWorker(worker, wasmModule, wasmMemory) {
   return new Promise(function(resolve, reject) {
     worker.onmessage = function (e) {
@@ -68,19 +75,25 @@ function initWorker(worker, wasmModule, wasmMemory) {
   });
 }
 
+/*
+Initializes the library. This function loads the WASM backend as well as setup up
+the worker threads.
+*/
 p5.prototype.loadColorSpaces = async function() {
   const wasmURL = new URL("colorspaces_bg.wasm", import.meta.url);
 
+  // Prepare compiled module and memory so that they can be sent to the worker threads.
   const wasmModule = await WebAssembly.compileStreaming(fetch(wasmURL));
+  // TODO: dynamically figure out memory limits
   const wasmMemory = new WebAssembly.Memory({initial: 17, maximum: 16384, shared: true});
 
-  // TODO: dynamically figure out memory limits
+  // Instantiate main thread module and initialize wasm-bindgen bindings.
   this._cs_wasmMemory = wasmMemory;
   this._cs_wasmInstance = await init(wasmModule, this._cs_wasmMemory);
-
   this._cs_backend = {};
   Object.assign(this._cs_backend, backend);
 
+  // Setup web workers
   // -1 because the main thread will also keep running
   const numWorkers = navigator.hardwareConcurrency - 1;
   const workerURL = new URL("worker.js", import.meta.url);
@@ -90,6 +103,8 @@ p5.prototype.loadColorSpaces = async function() {
     this._cs_threads.push(worker);
   }
 
+  // Setup a tiny shared buffer to serve as a semaphore. This is used
+  // later to synchronize the main thread and the worker threads.
   const semaphoreBuffer = new SharedArrayBuffer(4);
   for (let w of this._cs_threads) {
     w.postMessage({
@@ -99,6 +114,7 @@ p5.prototype.loadColorSpaces = async function() {
   }
   this._cs_semaphore = new Int32Array(semaphoreBuffer);
 
+  // Mark the backend as loaded
   this._cs_backendLoaded = true;
 }
 
@@ -108,6 +124,9 @@ p5.prototype.registerPromisePreload({
   addCallbacks: true
 });
 
+/*
+Checks if the WASM backend is loaded and raises an Error if it is not.
+*/
 p5.prototype._cs_checkIfBackendLoaded = function() {
   if (!this._cs_backendLoaded) {
     throw new ColorSpacesError("p5.colorspaces backend is not loaded. Please add 'loadColorSpaces()' to your preload() function.");
@@ -140,33 +159,53 @@ Conversion functions
 
 p5.prototype._cs_currentColorSpace = false;
 
-p5.prototype._cs_allocation_ptr = 0;
-p5.prototype._cs_allocation_len = 0;
+p5.prototype._cs_allocationPtr = 0;
+p5.prototype._cs_allocationLen = 0;
 
+/*
+Ensures that the current memory allocation for the backend has at least the given length.
+
+p5.colorSpaces allocations a section in WASM memory which is used to hold
+the data to be converted between color spaces. On the JS side, this allocation is represented by
+a pointer (_cs_allocationPtr) and a length (_cs_allocationLen), which are supplied to the
+conversion functions.
+*/
 p5.prototype._cs_ensureAllocationSize = function (len) {
-  if (this._cs_allocation_len < len) {
-    if (this._cs_allocation_ptr != 0) {
-      this._cs_backend.deallocate_buffer(this._cs_allocation);
+  if (this._cs_allocationLen < len) {
+    // If we need to re-allocate, free the previous allocation first.
+    if (this._cs_allocationPtr != 0) {
+      this._cs_backend.deallocate_buffer(this._cs_allocationPtr, this._cs_allocationLen);
     }
-    this._cs_allocation_ptr = this._cs_backend.allocate_buffer(len);
-    this._cs_allocation_len = len;
+
+    // Allocate new memory
+    this._cs_allocationPtr = this._cs_backend.allocate_buffer(len);
+    this._cs_allocationLen = len;
   }
 }
 
+/*
+Frees the current WASM memory allocation. This function is used to clean up when the
+p5.js sketch is removed.
+*/
 p5.prototype._cs_deallocate = function () {
   if (this._cs_allocation) {
-    this._cs_backend.deallocate_buffer(this._cs_allocation_ptr, this._cs_allocation_size);
+    this._cs_backend.deallocate_buffer(this._cs_allocationPtr, this._cs_allocation_size);
   }
 }
 
 p5.prototype.registerMethod("remove", p5.prototype._cs_deallocate);
 
+/*
+Applies a conversion function to an ImageData object.
+
+This function uses both the main thread and the worker threads to convert between color spaces.
+*/
 p5.prototype._cs_convertImageData = function (imageData, conversionFunc) {
   const imageArray = new Uint8Array(imageData.data.buffer);
   const dataLength = imageArray.length;
   this._cs_ensureAllocationSize(dataLength);
 
-  const wasmMemoryView = this._cs_backend.get_memory_view(this._cs_allocation_ptr, this._cs_allocation_len);
+  const wasmMemoryView = this._cs_backend.get_memory_view(this._cs_allocationPtr, this._cs_allocationLen);
   wasmMemoryView.set(imageArray);
 
   const numPixels = dataLength >> 2;
@@ -174,21 +213,29 @@ p5.prototype._cs_convertImageData = function (imageData, conversionFunc) {
   // pixelsPerThread takes the main thread into account which also does computation
   const pixelsPerThread = Math.floor(numPixels / (numWorkers + 1));
 
+  // Prepare semaphore. Every time a worker thread has finished, it decrements this values.
+  // After the main thread has processed it's part of the input data, it waits for this
+  // value to become zero to exit the function. Kinda hacky, but it does make
+  // a usually asynchronous process synchronous.
   Atomics.store(this._cs_semaphore, 0, numWorkers);
+
+  // Start worker threads
   for (let i = 0; i < numWorkers; i++) {
     this._cs_threads[i].postMessage({
       id: msg.MSG_CONVERSION,
       func: conversionFunc,
-      ptr: this._cs_allocation_ptr,
+      ptr: this._cs_allocationPtr,
       offset: i * pixelsPerThread * 4,
       len: pixelsPerThread * 4
     });
   }
 
+  // To the last part of the conversion on the main thread.
   const mainThreadOffset = numWorkers * pixelsPerThread * 4;
   const mainThreadLen = dataLength - mainThreadOffset;
-  this._cs_backend[conversionFunc](this._cs_allocation_ptr, mainThreadOffset, mainThreadLen);
+  this._cs_backend[conversionFunc](this._cs_allocationPtr, mainThreadOffset, mainThreadLen);
 
+  // Wait for worker threads to finish
   while(true) {
     if (Atomics.load(this._cs_semaphore, 0) <= 0) {
       break;
