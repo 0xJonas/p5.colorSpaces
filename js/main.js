@@ -49,6 +49,24 @@ p5.prototype._cs_wasmInstance = null;
 p5.prototype._cs_backendLoaded = false;
 p5.prototype._cs_wasmMemory = null;
 p5.prototype._cs_threads = [];
+p5.prototype._cs_semaphore = null;
+
+function initWorker(worker, wasmModule, wasmMemory) {
+  return new Promise(function(resolve, reject) {
+    worker.onmessage = function (e) {
+      if (e.data.id == msg.MSG_ACK_WASM_MODULE) {
+        resolve();
+      } else {
+        reject();
+      }
+    };
+    worker.postMessage({
+      id: msg.MSG_WASM_MODULE,
+      module: wasmModule,
+      memory: wasmMemory
+    })
+  });
+}
 
 p5.prototype.loadColorSpaces = async function() {
   const wasmURL = new URL("colorspaces_bg.wasm", import.meta.url);
@@ -63,17 +81,23 @@ p5.prototype.loadColorSpaces = async function() {
   this._cs_backend = {};
   Object.assign(this._cs_backend, backend);
 
-  const numWorkers = navigator.hardwareConcurrency;
+  // -1 because the main thread will also keep running
+  const numWorkers = navigator.hardwareConcurrency - 1;
   const workerURL = new URL("worker.js", import.meta.url);
   for (let i = 0; i < numWorkers; i++) {
-    const worker = new Worker(workerURL, {name: "thread " + i, type: "module"});
-    worker.postMessage({
-      id: msg.MSG_WASM_MODULE,
-      module: wasmModule,
-      memory: wasmMemory
-    })
+    const worker = new Worker(workerURL, {name: "thread " + i});
+    await initWorker(worker, wasmModule, wasmMemory);
     this._cs_threads.push(worker);
   }
+
+  const semaphoreBuffer = new SharedArrayBuffer(4);
+  for (let w of this._cs_threads) {
+    w.postMessage({
+      id: msg.MSG_SEMAPHORE,
+      semaphoreBuffer: semaphoreBuffer
+    });
+  }
+  this._cs_semaphore = new Int32Array(semaphoreBuffer);
 
   this._cs_backendLoaded = true;
 }
@@ -120,12 +144,13 @@ p5.prototype._cs_allocation_ptr = 0;
 p5.prototype._cs_allocation_len = 0;
 
 p5.prototype._cs_ensureAllocationSize = function (len) {
-  if (this._cs_allocation_ptr != 0 && this._cs_allocation_len < len) {
-    this._cs_backend.deallocate_buffer(this._cs_allocation);
+  if (this._cs_allocation_len < len) {
+    if (this._cs_allocation_ptr != 0) {
+      this._cs_backend.deallocate_buffer(this._cs_allocation);
+    }
+    this._cs_allocation_ptr = this._cs_backend.allocate_buffer(len);
+    this._cs_allocation_len = len;
   }
-
-  this._cs_allocation_ptr = this._cs_backend.allocate_buffer(len);
-  this._cs_allocation_len = len;
 }
 
 p5.prototype._cs_deallocate = function () {
@@ -136,35 +161,41 @@ p5.prototype._cs_deallocate = function () {
 
 p5.prototype.registerMethod("remove", p5.prototype._cs_deallocate);
 
-function convertImageData(imageData, conversionFunc, backend) {
+p5.prototype._cs_convertImageData = function (imageData, conversionFunc) {
   const imageArray = new Uint8Array(imageData.data.buffer);
+  const dataLength = imageArray.length;
+  this._cs_ensureAllocationSize(dataLength);
 
-  const blockSize = 1024;
-  const stripSize = imageArray.length % blockSize;
-  const strippedLength = imageArray.length - stripSize;
-  let allocation = null;
+  const wasmMemoryView = this._cs_backend.get_memory_view(this._cs_allocation_ptr, this._cs_allocation_len);
+  wasmMemoryView.set(imageArray);
 
-  try {
-    allocation = backend.allocate_buffer(blockSize);
-    const wasmMemoryView = backend.get_memory_view(allocation);
+  const numPixels = dataLength >> 2;
+  const numWorkers = this._cs_threads.length;
+  // pixelsPerThread takes the main thread into account which also does computation
+  const pixelsPerThread = Math.floor(numPixels / (numWorkers + 1));
 
-    for (let i = 0; i < strippedLength; i += blockSize) {
-      const section = imageArray.subarray(i, i + blockSize);
-      wasmMemoryView.set(section);
-      conversionFunc(allocation);
-      section.set(wasmMemoryView);
-    }
-    const section = imageArray.subarray(strippedLength, imageArray.length);
-    wasmMemoryView.set(section);
-    conversionFunc(allocation);
-    section.set(wasmMemoryView.subarray(0, stripSize));
+  Atomics.store(this._cs_semaphore, 0, numWorkers);
+  for (let i = 0; i < numWorkers; i++) {
+    this._cs_threads[i].postMessage({
+      id: msg.MSG_CONVERSION,
+      func: conversionFunc,
+      ptr: this._cs_allocation_ptr,
+      offset: i * pixelsPerThread * 4,
+      len: pixelsPerThread * 4
+    });
+  }
 
-    return imageData;
-  } finally {
-    if (allocation != 0) {
-      backend.deallocate_buffer(allocation);
+  const mainThreadOffset = numWorkers * pixelsPerThread * 4;
+  const mainThreadLen = dataLength - mainThreadOffset;
+  this._cs_backend[conversionFunc](this._cs_allocation_ptr, mainThreadOffset, mainThreadLen);
+
+  while(true) {
+    if (Atomics.load(this._cs_semaphore, 0) <= 0) {
+      break;
     }
   }
+
+  imageArray.set(wasmMemoryView);
 }
 
 /*
@@ -184,14 +215,8 @@ p5.prototype.enterColorSpace = function(colorSpace, whitePoint) {
   }
 
   const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
-  const imageArray = new Uint8Array(imageData.data.buffer);
-  this._cs_ensureAllocationSize(imageArray.length);
-
-  const wasmMemoryView = this._cs_backend.get_memory_view(this._cs_allocation_ptr, this._cs_allocation_len);
-  wasmMemoryView.set(imageArray);
-
-  this._cs_backend[conversionFunc](this._cs_allocation_ptr, 0, imageArray.length);
-  imageArray.set(wasmMemoryView);
+  
+  this._cs_convertImageData(imageData, conversionFunc);
 
   this.drawingContext.putImageData(imageData, 0, 0);
 
@@ -220,14 +245,8 @@ p5.prototype.exitColorSpace = function() {
   }
 
   const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
-  const imageArray = new Uint8Array(imageData.data.buffer);
-  this._cs_ensureAllocationSize(imageArray.length);
-
-  const wasmMemoryView = this._cs_backend.get_memory_view(this._cs_allocation_ptr, this._cs_allocation_len);
-  wasmMemoryView.set(imageArray);
-
-  this._cs_backend[conversionFunc](this._cs_allocation_ptr, 0, imageArray.length);
-  imageArray.set(wasmMemoryView);
+  
+  this._cs_convertImageData(imageData, conversionFunc);
 
   this.drawingContext.putImageData(imageData, 0, 0);
 
