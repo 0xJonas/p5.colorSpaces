@@ -3,7 +3,7 @@
   "name": "p5.colorspaces",
   "version": "0.1.0",
   "scripts": {
-    "build": "wasm-pack build --target web && rollup -c && cp ./pkg/colorspaces_bg.wasm ./dist/colorspaces_bg.wasm",
+    "build": "env RUSTFLAGS=\"-C target-feature=+atomics,+bulk-memory,+mutable-globals\" wasm-pack build --target web -- -Z build-std=std,panic_abort && rollup -c && cp ./pkg/colorspaces_bg.wasm ./dist/colorspaces_bg.wasm",
     "test": "cargo test && wasm-pack test --headless"
   },
   "devDependencies": {
