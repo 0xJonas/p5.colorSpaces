@@ -2,6 +2,7 @@
 
 import init, * as backend from "../pkg/colorspaces.js";
 import * as msg from "./messages.js";
+import * as white from "./whitepoints.js";
 
 /*
 Error messages and logging
@@ -153,11 +154,14 @@ p5.prototype.CIELCH = CIELCH;
 p5.prototype.CIELUV = CIELUV;
 p5.prototype.CIELCHUV = CIELCHUV;
 
+Object.assign(p5.prototype, white);
+
 /*
 Conversion functions
 */
 
 p5.prototype._cs_currentColorSpace = false;
+p5.prototype._cs_currentWhitePoint = white.D65_2;
 
 p5.prototype._cs_allocationPtr = 0;
 p5.prototype._cs_allocationLen = 0;
@@ -200,7 +204,7 @@ Applies a conversion function to an ImageData object.
 
 This function uses both the main thread and the worker threads to convert between color spaces.
 */
-p5.prototype._cs_convertImageData = function (imageData, conversionFunc) {
+p5.prototype._cs_convertImageData = function (imageData, conversionFunc, whitePoint) {
   const imageArray = new Uint8Array(imageData.data.buffer);
   const dataLength = imageArray.length;
   this._cs_ensureAllocationSize(dataLength);
@@ -226,6 +230,7 @@ p5.prototype._cs_convertImageData = function (imageData, conversionFunc) {
       func: conversionFunc,
       ptr: this._cs_allocationPtr,
       offset: i * pixelsPerThread * 4,
+      whitePoint: whitePoint,
       len: pixelsPerThread * 4
     });
   }
@@ -251,6 +256,10 @@ Converts the whole canvas into a given color space.
 p5.prototype.enterColorSpace = function(colorSpace, whitePoint) {
   this._cs_checkIfBackendLoaded();
 
+  if (!whitePoint) {
+    whitePoint = white.D65_2;
+  }
+
   let conversionFunc;
   switch (colorSpace) {
     case CIEXYZ:
@@ -259,15 +268,19 @@ p5.prototype.enterColorSpace = function(colorSpace, whitePoint) {
     case LINEAR_RGB:
       conversionFunc = "convert_memory_srgb_to_linear_rgb";
       break;
+    case CIELAB:
+      conversionFunc = "convert_memory_srgb_to_lab";
+      break;
   }
 
   const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
   
-  this._cs_convertImageData(imageData, conversionFunc);
+  this._cs_convertImageData(imageData, conversionFunc, whitePoint);
 
   this.drawingContext.putImageData(imageData, 0, 0);
 
   this._cs_currentColorSpace = colorSpace;
+  this._cs_currentWhitePoint = whitePoint;
 }
 
 /*
@@ -289,11 +302,14 @@ p5.prototype.exitColorSpace = function() {
     case LINEAR_RGB:
       conversionFunc = "convert_memory_linear_rgb_to_srgb";
       break;
+    case CIELAB:
+      conversionFunc = "convert_memory_lab_to_srgb";
+      break;
   }
 
   const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
   
-  this._cs_convertImageData(imageData, conversionFunc);
+  this._cs_convertImageData(imageData, conversionFunc, this._cs_currentWhitePoint);
 
   this.drawingContext.putImageData(imageData, 0, 0);
 

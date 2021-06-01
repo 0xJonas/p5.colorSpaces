@@ -137,10 +137,12 @@ pub fn convert_memory_linear_rgb_to_srgb(ptr: *mut u8, offset: usize, len: usize
 }
 
 #[wasm_bindgen]
-pub fn convert_memory_srgb_to_lab(ptr: *mut u8, offset: usize, len: usize, white: CIEXYZColor) {
+pub fn convert_memory_srgb_to_lab(ptr: *mut u8, offset: usize, len: usize, white_x: f32, white_y: f32, white_yy: f32) {
     let data: &mut [u8] = unsafe {
         std::slice::from_raw_parts_mut(ptr.add(offset), len)
     };
+
+    let white = CIEXYZColor(white_x / white_y * white_yy, white_yy, (1.0 - white_x - white_y) / white_y * white_yy);
 
     for i in 0..(data.len() / 4) {
         let r = data[i * 4 + 0] as f32 / 255.0;
@@ -157,10 +159,12 @@ pub fn convert_memory_srgb_to_lab(ptr: *mut u8, offset: usize, len: usize, white
 }
 
 #[wasm_bindgen]
-pub fn convert_memory_lab_to_srgb(ptr: *mut u8, offset: usize, len: usize, white: CIEXYZColor) {
+pub fn convert_memory_lab_to_srgb(ptr: *mut u8, offset: usize, len: usize, white_x: f32, white_y: f32, white_yy: f32) {
     let data: &mut [u8] = unsafe {
         std::slice::from_raw_parts_mut(ptr.add(offset), len)
     };
+
+    let white = CIEXYZColor(white_x / white_y * white_yy, white_yy, (1.0 - white_x - white_y) / white_y * white_yy);
 
     for i in 0..(data.len() / 4) {
         let l = data[i * 4 + 0] as f32 / 2.550;

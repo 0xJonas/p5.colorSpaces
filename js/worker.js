@@ -21,7 +21,8 @@ onmessage = function(e) {
     const ptr = e.data.ptr;
     const offset = e.data.offset;
     const len = e.data.len;
-    backend[func](ptr, offset, len);
+    const whitePoint = e.data.whitePoint;
+    backend[func](ptr, offset, len, ...whitePoint);
     semaphoreDown(semaphore);
   } else if (e.data.id == msg.MSG_SEMAPHORE) {
     // Message contains a semaphore.
