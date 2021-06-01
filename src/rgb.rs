@@ -44,6 +44,15 @@ const CORRECTION_FACTORS_5TH_ROOT: [f32; 9] = [
 #[derive(Debug, Copy, Clone)]
 pub struct SRGBColor(pub f32, pub f32, pub f32);
 
+#[wasm_bindgen]
+impl SRGBColor {
+
+    #[wasm_bindgen(constructor)]
+    pub fn new(r: f32, g: f32, b: f32) -> SRGBColor {
+        SRGBColor(r, g, b)
+    }
+}
+
 impl TristimulusColor for SRGBColor {
 
     fn get_0(&self) -> f32 {
@@ -63,6 +72,15 @@ impl TristimulusColor for SRGBColor {
 #[derive(Debug, Copy, Clone)]
 pub struct LinearRGBColor(pub f32, pub f32, pub f32);
 
+#[wasm_bindgen]
+impl LinearRGBColor {
+
+    #[wasm_bindgen(constructor)]
+    pub fn new(r_lin: f32, g_lin: f32, b_lin: f32) -> LinearRGBColor {
+        LinearRGBColor(r_lin, g_lin, b_lin)
+    }
+}
+
 impl TristimulusColor for LinearRGBColor {
 
     fn get_0(&self) -> f32 {
@@ -81,6 +99,15 @@ impl TristimulusColor for LinearRGBColor {
 #[wasm_bindgen]
 #[derive(Debug, Copy, Clone)]
 pub struct CIEXYZColor(pub f32, pub f32, pub f32);
+
+#[wasm_bindgen]
+impl CIEXYZColor {
+
+    #[wasm_bindgen(constructor)]
+    pub fn new(x: f32, y: f32, z: f32) -> CIEXYZColor {
+        CIEXYZColor(x, y, z)
+    }
+}
 
 impl TristimulusColor for CIEXYZColor {
 

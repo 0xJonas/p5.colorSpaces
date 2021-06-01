@@ -14,6 +14,15 @@ const CORRECTION_FACTOR_3RD_ROOT: [f32; 5] = [
 #[derive(Debug, Copy, Clone)]
 pub struct CIELabColor(pub f32, pub f32, pub f32);
 
+#[wasm_bindgen]
+impl CIELabColor {
+    
+    #[wasm_bindgen(constructor)]
+    pub fn new(l: f32, a: f32, b: f32) -> CIELabColor {
+        CIELabColor(l, a, b)
+    }
+}
+
 impl TristimulusColor for CIELabColor {
 
     fn get_0(&self) -> f32 {
