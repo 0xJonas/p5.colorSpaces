@@ -315,3 +315,15 @@ p5.prototype.exitColorSpace = function() {
 
   this._cs_currentColorSpace = this.SRGB;
 }
+
+/*
+Sets the current color space and white point without actually converting anything.
+
+This function should be used when the entire canvas is redrawn each frame.
+*/
+p5.prototype.warpToColorSpace = function (colorSpace, whitePoint) {
+  this._cs_checkIfBackendLoaded();
+
+  this._cs_currentColorSpace = colorSpace;
+  this._cs_currentWhitePoint = whitePoint;
+}
