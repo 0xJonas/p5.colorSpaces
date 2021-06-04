@@ -150,7 +150,7 @@ pub fn convert_memory_srgb_to_lab(ptr: *mut u8, offset: usize, len: usize, white
         let b = data[i * 4 + 2] as f32 / 255.0;
 
         let xyz = srgb_to_xyz(SRGBColor(r, g, b));
-        let CIELabColor(l, a_s, b_s) = xyz_to_lab(xyz, white);
+        let CIELabColor(l, a_s, b_s) = xyz_to_lab(xyz, &white);
 
         data[i * 4 + 0] = (f32::to_bits((l * 2.55).clamp(0.0, 255.0) + 256.5) >> 15) as u8;
         data[i * 4 + 1] = (f32::to_bits((a_s + 128.0).clamp(0.0, 255.0) + 256.5) >> 15) as u8;
@@ -171,7 +171,7 @@ pub fn convert_memory_lab_to_srgb(ptr: *mut u8, offset: usize, len: usize, white
         let a_s = data[i * 4 + 1] as f32 - 128.0;
         let b_s = data[i * 4 + 2] as f32 - 128.0;
 
-        let xyz = lab_to_xyz(CIELabColor(l, a_s, b_s), white);
+        let xyz = lab_to_xyz(CIELabColor(l, a_s, b_s), &white);
         let SRGBColor(r, g, b) = xyz_to_srgb(xyz);
 
         data[i * 4 + 0] = (f32::to_bits((r * 255.0).clamp(0.0, 255.0) + 256.5) >> 15) as u8;

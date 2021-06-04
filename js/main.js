@@ -1,8 +1,9 @@
 "use strict"
 
 import init, * as backend from "../pkg/colorspaces.js";
-import * as msg from "./messages.js";
+import * as constants from "./constants.js";
 import * as white from "./whitepoints.js";
+import "./colorFunctions.js";
 
 /*
 Error messages and logging
@@ -62,14 +63,14 @@ from this message await-able.
 function initWorker(worker, wasmModule, wasmMemory) {
   return new Promise(function(resolve, reject) {
     worker.onmessage = function (e) {
-      if (e.data.id == msg.MSG_ACK_WASM_MODULE) {
+      if (e.data.id == constants.MSG_ACK_WASM_MODULE) {
         resolve();
       } else {
         reject();
       }
     };
     worker.postMessage({
-      id: msg.MSG_WASM_MODULE,
+      id: constants.MSG_WASM_MODULE,
       module: wasmModule,
       memory: wasmMemory
     })
@@ -109,7 +110,7 @@ p5.prototype.loadColorSpaces = async function() {
   const semaphoreBuffer = new SharedArrayBuffer(4);
   for (let w of this._cs_threads) {
     w.postMessage({
-      id: msg.MSG_SEMAPHORE,
+      id: constants.MSG_SEMAPHORE,
       semaphoreBuffer: semaphoreBuffer
     });
   }
@@ -138,21 +139,13 @@ p5.prototype._cs_checkIfBackendLoaded = function() {
 Color space constants
 */
 
-const SRGB = "sRGB";
-const LINEAR_RGB = "linear RGB";
-const CIEXYZ = "CIEXYZ";
-const CIELAB = "CIELab";
-const CIELCH = "CIELCh";
-const CIELUV = "CIELuv";
-const CIELCHUV = "CIELChuv";
-
-p5.prototype.SRGB = SRGB;
-p5.prototype.LINEAR_RGB = LINEAR_RGB;
-p5.prototype.CIEXYZ = CIEXYZ;
-p5.prototype.CIELAB = CIELAB;
-p5.prototype.CIELCH = CIELCH;
-p5.prototype.CIELUV = CIELUV;
-p5.prototype.CIELCHUV = CIELCHUV;
+p5.prototype.SRGB = constants.SRGB;
+p5.prototype.LINEAR_RGB = constants.LINEAR_RGB;
+p5.prototype.CIEXYZ = constants.CIEXYZ;
+p5.prototype.CIELAB = constants.CIELAB;
+p5.prototype.CIELCH = constants.CIELCH;
+p5.prototype.CIELUV = constants.CIELUV;
+p5.prototype.CIELCHUV = constants.CIELCHUV;
 
 Object.assign(p5.prototype, white);
 
@@ -160,7 +153,7 @@ Object.assign(p5.prototype, white);
 Conversion functions
 */
 
-p5.prototype._cs_currentColorSpace = false;
+p5.prototype._cs_currentColorSpace = constants.SRGB;
 p5.prototype._cs_currentWhitePoint = white.D65_2;
 
 p5.prototype._cs_allocationPtr = 0;
@@ -226,7 +219,7 @@ p5.prototype._cs_convertImageData = function (imageData, conversionFunc, whitePo
   // Start worker threads
   for (let i = 0; i < numWorkers; i++) {
     this._cs_threads[i].postMessage({
-      id: msg.MSG_CONVERSION,
+      id: constants.MSG_CONVERSION,
       func: conversionFunc,
       ptr: this._cs_allocationPtr,
       offset: i * pixelsPerThread * 4,
@@ -262,13 +255,13 @@ p5.prototype.enterColorSpace = function(colorSpace, whitePoint) {
 
   let conversionFunc;
   switch (colorSpace) {
-    case CIEXYZ:
+    case constants.CIEXYZ:
       conversionFunc = "convert_memory_srgb_to_xyz";
       break;
-    case LINEAR_RGB:
+    case constants.LINEAR_RGB:
       conversionFunc = "convert_memory_srgb_to_linear_rgb";
       break;
-    case CIELAB:
+    case constants.CIELAB:
       conversionFunc = "convert_memory_srgb_to_lab";
       break;
   }
@@ -296,13 +289,13 @@ p5.prototype.exitColorSpace = function() {
 
   let conversionFunc;
   switch (this._cs_currentColorSpace) {
-    case CIEXYZ:
+    case constants.CIEXYZ:
       conversionFunc = "convert_memory_xyz_to_srgb";
       break;
-    case LINEAR_RGB:
+    case constants.LINEAR_RGB:
       conversionFunc = "convert_memory_linear_rgb_to_srgb";
       break;
-    case CIELAB:
+    case constants.CIELAB:
       conversionFunc = "convert_memory_lab_to_srgb";
       break;
   }

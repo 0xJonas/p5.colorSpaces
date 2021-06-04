@@ -228,6 +228,26 @@ pub fn xyz_to_srgb(xyz: CIEXYZColor) -> SRGBColor {
     )
 }
 
+#[wasm_bindgen]
+pub fn linear_rgb_to_xyz(lin_rgb: LinearRGBColor) -> CIEXYZColor {
+    let LinearRGBColor(r_lin, g_lin, b_lin) = lin_rgb;
+    CIEXYZColor(
+        r_lin * 0.4123907992659594812888840055 + g_lin * 0.3575843393838779637292839034 + b_lin * 0.1804807884018342875046284426,
+        r_lin * 0.2126390058715103575395808154 + g_lin * 0.7151686787677559274585678068 + b_lin * 0.07219231536073371500185137706,
+        r_lin * 0.01933081871559185068541643776 + g_lin * 0.1191947797946259879097613012 + b_lin * 0.9505321522496605808577097982
+    )
+}
+
+#[wasm_bindgen]
+pub fn xyz_to_linear_rgb(xyz: CIEXYZColor) -> LinearRGBColor {
+    let CIEXYZColor(x, y, z) = xyz;
+    LinearRGBColor(
+        x * 3.240969941904521343773680225 + y * -1.537383177570093457943925235 + z * -0.4986107602930032836574892651,
+        x * -0.9692436362808798261285146964 + y * 1.875967501507720667721122882 + z * 0.04155505740717561247596181202,
+        x * 0.05563007969699360845892843062 + y * -0.2039769588889765643494042455 + z * 1.056971514242878560719640180
+    )
+}
+
 #[cfg(test)]
 mod tests {
 
