@@ -153,8 +153,8 @@ Object.assign(p5.prototype, white);
 Conversion functions
 */
 
-p5.prototype._cs_currentColorSpace = constants.SRGB;
-p5.prototype._cs_currentWhitePoint = white.D65_2;
+p5.prototype._cs_mixingColorSpace = constants.SRGB;
+p5.prototype._cs_mixingWhitePoint = white.D65_2;
 
 p5.prototype._cs_allocationPtr = 0;
 p5.prototype._cs_allocationLen = 0;
@@ -272,8 +272,8 @@ p5.prototype.enterColorSpace = function(colorSpace, whitePoint) {
 
   this.drawingContext.putImageData(imageData, 0, 0);
 
-  this._cs_currentColorSpace = colorSpace;
-  this._cs_currentWhitePoint = whitePoint;
+  this._cs_mixingColorSpace = colorSpace;
+  this._cs_mixingWhitePoint = whitePoint;
 }
 
 /*
@@ -282,13 +282,13 @@ Converts the canvas back to sRGB.
 p5.prototype.exitColorSpace = function() {
   this._cs_checkIfBackendLoaded();
 
-  if (this._cs_currentColorSpace == this.SRGB){
+  if (this._cs_mixingColorSpace == this.SRGB){
     logMessage("exitColorSpace() was called while not inside of a color space.", LEVEL_WARN);
     return;
   }
 
   let conversionFunc;
-  switch (this._cs_currentColorSpace) {
+  switch (this._cs_mixingColorSpace) {
     case constants.CIEXYZ:
       conversionFunc = "convert_memory_xyz_to_srgb";
       break;
@@ -302,11 +302,11 @@ p5.prototype.exitColorSpace = function() {
 
   const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
   
-  this._cs_convertImageData(imageData, conversionFunc, this._cs_currentWhitePoint);
+  this._cs_convertImageData(imageData, conversionFunc, this._cs_mixingWhitePoint);
 
   this.drawingContext.putImageData(imageData, 0, 0);
 
-  this._cs_currentColorSpace = this.SRGB;
+  this._cs_mixingColorSpace = this.SRGB;
 }
 
 /*
@@ -317,6 +317,6 @@ This function should be used when the entire canvas is redrawn each frame.
 p5.prototype.warpToColorSpace = function (colorSpace, whitePoint) {
   this._cs_checkIfBackendLoaded();
 
-  this._cs_currentColorSpace = colorSpace;
-  this._cs_currentWhitePoint = whitePoint;
+  this._cs_mixingColorSpace = colorSpace;
+  this._cs_mixingWhitePoint = whitePoint;
 }
