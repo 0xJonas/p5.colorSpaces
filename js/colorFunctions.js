@@ -12,8 +12,7 @@ p5.prototype.colorMode = function (...args) {
   const mode = args[0];
   
   if (mode == p5.prototype.RGB) {
-    // Store maxes for RGB because the override for color() needs to know these
-    // in case of weird inputs.
+    // Store maxes for RGB because we override them for p5.colorSpaces Colors
     switch (args.length) {
       case 2:
         const max = args[1];
@@ -53,41 +52,85 @@ function createGrayscaleTristimulus(gray, colorSpace) {
   }
 }
 
+function unapplyScaling(input, colorSpace) {
+  switch (colorSpace) {
+    case constants.SRGB:
+    case constants.LINEAR_RGB:
+      return input;
+    case constants.CIEXYZ:
+      return [input[0] * 0.95047, input[1], input[2] * 1.08883, input[3]];
+    case constants.CIELAB:
+      return [input[0] * 100.0, (input[1] * 255) - 128, (input[2] * 255) - 128, input[3]];
+  }
+}
+
+function colorSpaceToXYZ(input, colorSpace, whiteXYZ, backend) {
+  switch (colorSpace) {
+    case constants.SRGB:
+      const srgb = new backend.SRGBColor(input[0], input[1], input[2]);
+      return backend.srgb_to_xyz(srgb);
+    case constants.LINEAR_RGB:
+      const linRGB = new backend.LinearRGBColor(input[0], input[1], input[2]);
+      return backend.linear_rgb_to_xyz(linRGB);
+    case constants.CIEXYZ:
+      return new backend.CIEXYZColor(input[0], input[1], input[2]);
+    case constants.CIELAB:
+      const lab = new backend.CIELabColor(input[0], input[1], input[2]);
+      return backend.lab_to_xyz(lab, whiteXYZ);
+  }
+}
+
+function XYZToColorSpace(xyzColor, colorSpace, whiteXYZ, backend) {
+  switch (colorSpace) {
+    case constants.SRGB:
+      return backend.xyz_to_srgb(xyzColor);
+    case constants.LINEAR_RGB:
+      return backend.xyz_to_linear_rgb(xyzColor);
+    case constants.CIEXYZ:
+      return xyzColor;
+    case constants.CIELAB:
+      return backend.xyz_to_lab(xyzColor, whiteXYZ);
+  }
+}
+
+function applyScaling(input, colorSpace) {
+  switch (colorSpace) {
+    case constants.SRGB:
+    case constants.LINEAR_RGB:
+      return input;
+    case constants.CIEXYZ:
+      return [input[0] / 0.95047, input[1], input[2] / 1.08883, input[3]];
+    case constants.CIELAB:
+      return [input[0] / 100.0, (input[1] + 128) / 255, (input[2] + 128) / 255, input[3]];
+  }
+}
+
 p5.prototype._cs_originalColor = p5.prototype.color;
 p5.prototype.color = function (...args) {
-  /*
-  Short-circuit if the input already is a p5.Color instance.
-  This is necessary because the red(), green() and blue() functions
-  called further down internally use color(), which would lead to
-  infinite recursion.
-  */
-  if (args[0] instanceof p5.Color) {
-    return args[0];
-  }
-
   /*
   Convert input into a known format.
   */
   let input;
-  let inputMode = this._cs_currentColorMode;
-  if (inputMode == this.RGB || inputMode == this.HSL || inputMode == this.HSB) { 
-    inputMode = constants.SRGB;
+  let inputMode;
+
+  if (args[0] instanceof p5.Color) {
+    input = [...args[0]._array];
+    inputMode = args[0]._cs_sourceColorSpace || constants.SRGB;
+    input = unapplyScaling(input, inputMode);
+  } else if (this._cs_currentColorMode == this.RGB || this._cs_currentColorMode == this.HSL || this._cs_currentColorMode == this.HSB) { 
     const parsedInput = this._cs_originalColor(...args);
-    const maxes = this._cs_currentRGBMaxes;
-    input = [
-      this.red(parsedInput) / maxes[0],
-      this.green(parsedInput) / maxes[1],
-      this.blue(parsedInput) / maxes[2],
-      this.alpha(parsedInput) / maxes[3]
-    ];
+    input = [...parsedInput._array];
+    inputMode = constants.SRGB;
   } else if (args.length < 3 && typeof args[0] == "number") {
     input = createGrayscaleTristimulus(args[0], this._cs_currentColorMode);
+    inputMode = this._cs_currentColorMode
   } else {
     // input is already a tristimulus values suitable for p5.colorSpaces
     input = args;
     if (args.length == 3) {
       input.push(1.0);
     }
+    inputMode = this._cs_currentColorMode
   }
 
   const alpha = input[3];
@@ -95,54 +138,23 @@ p5.prototype.color = function (...args) {
   /*
   Convert to CIEXYZ
   */
-  let xyzColor;
   const [chromaX, chromaY, y] = this._cs_currentWhitePoint;
   const whiteXYZ = new this._cs_backend.CIEXYZColor(chromaX / chromaY * y, y, (1.0 - chromaX - chromaY) / chromaY * y);
-  switch (inputMode) {
-    case constants.SRGB:
-      const srgb = new this._cs_backend.SRGBColor(input[0], input[1], input[2]);
-      xyzColor = this._cs_backend.srgb_to_xyz(srgb);
-      break;
-    case constants.LINEAR_RGB:
-      const linRGB = new this._cs_backend.LinearRGBColor(input[0], input[1], input[2]);
-      xyzColor = this._cs_backend.linear_rgb_to_xyz(linRGB);
-      break;
-    case constants.CIEXYZ:
-      xyzColor = new this._cs_backend.CIEXYZColor(input[0], input[1], input[2]);
-      break;
-    case constants.CIELAB:
-      const lab = new this._cs_backend.CIELabColor(input[0], input[1], input[2]);
-      xyzColor = this._cs_backend.lab_to_xyz(lab, whiteXYZ);
-      break;
-  }
+  const xyzColor = colorSpaceToXYZ(input, inputMode, whiteXYZ, this._cs_backend);
 
   /*
   Convert to target color space
   */
-  let outColor;
+  let outColor = XYZToColorSpace(xyzColor, this._cs_currentColorSpace, whiteXYZ, this._cs_backend);
+  outColor = applyScaling(outColor, this._cs_currentColorSpace);
+
   let storedColorMode = this._cs_currentColorMode;
   this.colorMode(this._cs_currentColorSpace)
-  switch (this._cs_currentColorSpace) {
-    case constants.SRGB:
-      const rgb = this._cs_backend.xyz_to_srgb(xyzColor);
-      outColor = this._cs_originalColor(rgb[0], rgb[1], rgb[2], alpha);
-      break;
-    case constants.LINEAR_RGB:
-      const rgbLin = this._cs_backend.xyz_to_linear_rgb(xyzColor);
-      outColor = this._cs_originalColor(rgbLin[0], rgbLin[1], rgbLin[2], alpha);
-      break;
-    case constants.CIEXYZ:
-      const xyz = xyzColor;
-      outColor = this._cs_originalColor(xyz[0] / 0.95047, xyz[1], xyz[2] / 1.08883, alpha);
-      break;
-    case constants.CIELAB:
-      const lab = this._cs_backend.xyz_to_lab(xyzColor, whiteXYZ);
-      outColor = this._cs_originalColor(lab[0] / 100.0, (lab[1] + 128.0) / 255.0, (lab[2] + 128.0) / 255.0, alpha);
-      break;
-  }
+  let outColorP5 = this._cs_originalColor(outColor[0], outColor[1], outColor[2], alpha);
   this.colorMode(storedColorMode);
 
-  return outColor;
+  outColorP5._cs_sourceColorSpace = this._cs_currentColorSpace;
+  return outColorP5;
 }
 
 p5.prototype._cs_originalFill = p5.prototype.fill;
@@ -153,4 +165,9 @@ p5.prototype.fill = function (...args) {
 p5.prototype._cs_originalStroke = p5.prototype.stroke;
 p5.prototype.stroke = function (...args) {
   return this._cs_originalStroke(this.color(...args));
+}
+
+p5.prototype._cs_originalBackground = p5.prototype.background;
+p5.prototype.background = function (...args) {
+  return this._cs_originalBackground(this.color(...args));
 }
