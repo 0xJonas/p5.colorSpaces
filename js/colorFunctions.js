@@ -14,7 +14,7 @@ p5.prototype.colorMode = function (...args) {
   let mode;
   let white;
   
-  if (typeof args[0] == "object") {
+  if (args[0] instanceof Array) {
     mode = args[0][1];
     white = args[0][1];
   } else {
@@ -105,10 +105,17 @@ Converts a color tuple into the CIEXYZ color space.
 
 @param input color tuple.
 @param sourceColorSpace Color space of the input tuple.
-@param whiteXYZ CIEXYZ color representing the reference white point of the input, if required.
+@param sourceWhite CIExyY color representing the reference white point of the input, if required.
 @param backend WASM backend.
 */
-function colorSpaceToXYZ(input, sourceColorSpace, sourceWhiteXYZ, backend) {
+function colorSpaceToXYZ(input, sourceColorSpace, sourceWhite, backend) {
+  const [chromaX, chromaY, y] = sourceWhite;
+  const sourceWhiteXYZ = new backend.CIEXYZColor(
+    chromaX / chromaY * y,
+    y,
+    (1.0 - chromaX - chromaY) / chromaY * y
+  );
+
   switch (sourceColorSpace) {
     case constants.SRGB:
       const srgb = new backend.SRGBColor(input[0], input[1], input[2]);
@@ -129,10 +136,17 @@ Converts a CIEXYZ color into another color space.
 
 @param xyzColor input CIEXYZ color.
 @param targetColorSpace Color space to convert the input color to.
-@param targetWhiteXYZ CIEXYZ color to be used as a reference white point, if required.
+@param targetWhite CIExyY color to be used as a reference white point, if required.
 @param backend WASM backend.
 */
-function XYZToColorSpace(xyzColor, targetColorSpace, targetWhiteXYZ, backend) {
+function XYZToColorSpace(xyzColor, targetColorSpace, targetWhite, backend) {
+  const [chromaX, chromaY, y] = targetWhite;
+  const targetWhiteXYZ = new backend.CIEXYZColor(
+    chromaX / chromaY * y,
+    y,
+    (1.0 - chromaX - chromaY) / chromaY * y
+  );
+
   switch (targetColorSpace) {
     case constants.SRGB:
       return backend.xyz_to_srgb(xyzColor);
@@ -195,13 +209,13 @@ p5.prototype.color = function (...args) {
     input = createGrayscaleTristimulus(args[0], this._cs_inputColorSpace);
     inputMode = this._cs_inputColorSpace
   }
-  else if (args.length >= 3 && typeof args[0] == "number" && typeof args[1] == "number" && typeof args[2] == "number" && typeof args[3] == "number") {
+  else if (args.length >= 3 && typeof args[0] == "number" && typeof args[1] == "number" && typeof args[2] == "number") {
     /*
     Input is a tristimulus value suitable for p5.colorSpaces
     */
     input = args;
     // Add alpha if not provided.
-    if (args.length == 3) {
+    if (args.length <= 3) {
       input.push(1.0);
     }
     inputMode = this._cs_inputColorSpace
@@ -212,24 +226,12 @@ p5.prototype.color = function (...args) {
   /*
   Convert from input color space to CIEXYZ.
   */
-  const [inputChromaX, inputChromaY, inputY] = this._cs_inputWhitePoint;
-  const inputWhiteXYZ = new this._cs_backend.CIEXYZColor(
-    inputChromaX / inputChromaY * inputY,
-    inputY,
-    (1.0 - inputChromaX - inputChromaY) / inputChromaY * inputY
-  );
-  const xyzColor = colorSpaceToXYZ(input, inputMode, inputWhiteXYZ, this._cs_backend);
+  const xyzColor = colorSpaceToXYZ(input, inputMode, this._cs_inputWhitePoint, this._cs_backend);
 
   /*
   Convert from CIEXYZ to mixing color space.
   */
-  const [mixingChromaX, mixingChromaY, mixingY] = this._cs_inputWhitePoint;
-  const mixingWhiteXYZ = new this._cs_backend.CIEXYZColor(
-    mixingChromaX / mixingChromaY * mixingY,
-    mixingY,
-    (1.0 - mixingChromaX - mixingChromaY) / mixingChromaY * mixingY
-  );
-  let outColor = XYZToColorSpace(xyzColor, this._cs_mixingColorSpace, mixingWhiteXYZ, this._cs_backend);
+  let outColor = XYZToColorSpace(xyzColor, this._cs_mixingColorSpace, this._cs_mixingWhitePoint, this._cs_backend);
   outColor = applyScaling(outColor, this._cs_mixingColorSpace);
 
   /*
@@ -241,6 +243,7 @@ p5.prototype.color = function (...args) {
   this.colorMode(storedColorMode);
 
   outColorP5._cs_sourceColorSpace = this._cs_mixingColorSpace;
+  outColorP5._cs_sourceWhitePoint = this._cs_mixingWhitePoint;
   return outColorP5;
 }
 
@@ -257,4 +260,112 @@ p5.prototype.stroke = function (...args) {
 p5.prototype._cs_originalBackground = p5.prototype.background;
 p5.prototype.background = function (...args) {
   return this._cs_originalBackground(this.color(...args));
+}
+
+function convertColor(color, targetColorSpace, targetWhitePoint, backend) {
+  let sourceColorSpace = color._cs_sourceColorSpace || constants.SRGB;
+  let sourceWhitePoint = color._cs_sourceWhitePoint || D65_2;
+
+  const scaledColor = unapplyScaling(color._array, sourceColorSpace);
+  const xyzColor = colorSpaceToXYZ(scaledColor, sourceColorSpace, sourceWhitePoint, backend);
+  const outColor = XYZToColorSpace(xyzColor, targetColorSpace, targetWhitePoint, backend);
+
+  return [outColor[0], outColor[1], outColor[2], color[3]];
+}
+
+function ensureP5ColorWithSRGB(color, backend) {
+  let colorObj;
+  if (!(color instanceof p5.Color)) {
+    colorObj = this.color(color);
+  } else {
+    colorObj = color;
+  }
+
+  if (!colorObj[constants.SRGB]) {
+    colorObj[constants.SRGB] = convertColor(colorObj, constants.SRGB, D65_2, backend);
+  }
+
+  return colorObj;
+}
+
+p5.prototype._cs_originalRed = p5.prototype.red;
+p5.prototype.red = function (color) {
+  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+  return colorObj[constants.SRGB][0] * this._cs_currentRGBMaxes[0];
+}
+
+p5.prototype._cs_originalGreen = p5.prototype.green;
+p5.prototype.green = function (color) {
+  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+  return colorObj[constants.SRGB][1] * this._cs_currentRGBMaxes[1];
+}
+
+p5.prototype._cs_originalBlue = p5.prototype.blue;
+p5.prototype.blue = function (color) {
+  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+  return colorObj[constants.SRGB][2] * this._cs_currentRGBMaxes[2];
+}
+
+p5.prototype._cs_originalHue = p5.prototype.hue;
+p5.prototype.hue = function (color) {
+  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+
+  const storedColorMode = this._cs_inputColorSpace;
+  this.colorMode(constants.SRGB);
+  const tempColor = this._cs_originalColor(
+    colorObj[constants.SRGB][0],
+    colorObj[constants.SRGB][1],
+    colorObj[constants.SRGB][2],
+  );
+  this.colorMode(storedColorMode);
+
+  return this._cs_originalHue(tempColor);
+}
+
+p5.prototype._cs_originalSaturation = p5.prototype.saturation;
+p5.prototype.saturation = function (color) {
+  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+
+  const storedColorMode = this._cs_inputColorSpace;
+  this.colorMode(constants.SRGB);
+  const tempColor = this._cs_originalColor(
+    colorObj[constants.SRGB][0],
+    colorObj[constants.SRGB][1],
+    colorObj[constants.SRGB][2],
+  );
+  this.colorMode(storedColorMode);
+
+  return this._cs_originalSaturation(tempColor);
+}
+
+p5.prototype._cs_originalLightness = p5.prototype.lightness;
+p5.prototype.lightness = function (color) {
+  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+
+  const storedColorMode = this._cs_inputColorSpace;
+  this.colorMode(constants.SRGB);
+  const tempColor = this._cs_originalColor(
+    colorObj[constants.SRGB][0],
+    colorObj[constants.SRGB][1],
+    colorObj[constants.SRGB][2],
+  );
+  this.colorMode(storedColorMode);
+
+  return this._cs_originalLightness(tempColor);
+}
+
+p5.prototype._cs_originalBrightness = p5.prototype.brightness;
+p5.prototype.brightness = function (color) {
+  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+
+  const storedColorMode = this._cs_inputColorSpace;
+  this.colorMode(constants.SRGB);
+  const tempColor = this._cs_originalColor(
+    colorObj[constants.SRGB][0],
+    colorObj[constants.SRGB][1],
+    colorObj[constants.SRGB][2],
+  );
+  this.colorMode(storedColorMode);
+
+  return this._cs_originalBrightness(tempColor);
 }
