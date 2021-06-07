@@ -72,9 +72,9 @@ pub fn lab_digamma(val: f32) -> f32 {
 }
 
 #[wasm_bindgen]
-pub fn xyz_to_lab(xyz: CIEXYZColor, white: &CIEXYZColor) -> CIELabColor {
-    let CIEXYZColor(x, y, z) = xyz;
-    let CIEXYZColor(xw, yw, zw) = white;
+pub fn xyz_to_lab(xyz: &CIEXYZColor, white: &CIEXYZColor) -> CIELabColor {
+    let &CIEXYZColor(x, y, z) = xyz;
+    let &CIEXYZColor(xw, yw, zw) = white;
 
     let x_gamma = lab_gamma(x / xw);
     let y_gamma = lab_gamma(y / yw);
@@ -84,9 +84,9 @@ pub fn xyz_to_lab(xyz: CIEXYZColor, white: &CIEXYZColor) -> CIELabColor {
 }
 
 #[wasm_bindgen]
-pub fn lab_to_xyz(lab: CIELabColor, white: &CIEXYZColor) -> CIEXYZColor {
-    let CIELabColor(l, a, b) = lab;
-    let CIEXYZColor(xw, yw, zw) = white;
+pub fn lab_to_xyz(lab: &CIELabColor, white: &CIEXYZColor) -> CIEXYZColor {
+    let &CIELabColor(l, a, b) = lab;
+    let &CIEXYZColor(xw, yw, zw) = white;
 
     let y_gamma = (l + 16.0) / 116.0;
     let x_gamma = y_gamma + a / 500.0;
@@ -107,15 +107,15 @@ mod tests {
 
     #[test]
     fn test_xyz_to_lab() {
-        assert!(xyz_to_lab(CIEXYZColor(0.44272, 0.28123, 0.14037), &D65).equal_within(CIELabColor(60.0, 60.0, 30.0), MARGIN));
-        assert!(xyz_to_lab(CIEXYZColor(0.55, 0.9, 0.001), &D65).equal_within(CIELabColor(95.997, -66.088, 164.081), MARGIN));
-        assert!(xyz_to_lab(CIEXYZColor(0.3, 0.5, 0.8), &D65).equal_within(CIELabColor(76.069, -56.418, -21.731), MARGIN));
+        assert!(xyz_to_lab(&CIEXYZColor(0.44272, 0.28123, 0.14037), &D65).equal_within(CIELabColor(60.0, 60.0, 30.0), MARGIN));
+        assert!(xyz_to_lab(&CIEXYZColor(0.55, 0.9, 0.001), &D65).equal_within(CIELabColor(95.997, -66.088, 164.081), MARGIN));
+        assert!(xyz_to_lab(&CIEXYZColor(0.3, 0.5, 0.8), &D65).equal_within(CIELabColor(76.069, -56.418, -21.731), MARGIN));
     }
 
     #[test]
     fn test_lab_to_xyz() {
-        assert!(lab_to_xyz(CIELabColor(60.0, 60.0, 30.0), &D65).equal_within(CIEXYZColor(0.44272, 0.28123, 0.14037), MARGIN));
-        assert!(lab_to_xyz(CIELabColor(95.997, -66.088, 164.081), &D65).equal_within(CIEXYZColor(0.55, 0.9, 0.001), MARGIN));
-        assert!(lab_to_xyz(CIELabColor(76.069, -56.418, -21.731), &D65).equal_within(CIEXYZColor(0.3, 0.5, 0.8), MARGIN));
+        assert!(lab_to_xyz(&CIELabColor(60.0, 60.0, 30.0), &D65).equal_within(CIEXYZColor(0.44272, 0.28123, 0.14037), MARGIN));
+        assert!(lab_to_xyz(&CIELabColor(95.997, -66.088, 164.081), &D65).equal_within(CIEXYZColor(0.55, 0.9, 0.001), MARGIN));
+        assert!(lab_to_xyz(&CIELabColor(76.069, -56.418, -21.731), &D65).equal_within(CIEXYZColor(0.3, 0.5, 0.8), MARGIN));
     }
 }

@@ -92,7 +92,7 @@ function unapplyScaling(input, colorSpace) {
   switch (colorSpace) {
     case constants.SRGB:
     case constants.LINEAR_RGB:
-      return input;
+      return [input[0], input[1], input[2], input[3]];
     case constants.CIEXYZ:
       return [input[0] * 0.95047, input[1], input[2] * 1.08883, input[3]];
     case constants.CIELAB:
@@ -109,25 +109,43 @@ Converts a color tuple into the CIEXYZ color space.
 @param backend WASM backend.
 */
 function colorSpaceToXYZ(input, sourceColorSpace, sourceWhite, backend) {
-  const [chromaX, chromaY, y] = sourceWhite;
-  const sourceWhiteXYZ = new backend.CIEXYZColor(
-    chromaX / chromaY * y,
-    y,
-    (1.0 - chromaX - chromaY) / chromaY * y
-  );
+  let inputWASM;
+  let sourceWhiteXYZ;
+  try{
+    const [chromaX, chromaY, y] = sourceWhite;
+    sourceWhiteXYZ = new backend.CIEXYZColor(
+      chromaX / chromaY * y,
+      y,
+      (1.0 - chromaX - chromaY) / chromaY * y
+    );
 
-  switch (sourceColorSpace) {
-    case constants.SRGB:
-      const srgb = new backend.SRGBColor(input[0], input[1], input[2]);
-      return backend.srgb_to_xyz(srgb);
-    case constants.LINEAR_RGB:
-      const linRGB = new backend.LinearRGBColor(input[0], input[1], input[2]);
-      return backend.linear_rgb_to_xyz(linRGB);
-    case constants.CIEXYZ:
-      return new backend.CIEXYZColor(input[0], input[1], input[2]);
-    case constants.CIELAB:
-      const lab = new backend.CIELabColor(input[0], input[1], input[2]);
-      return backend.lab_to_xyz(lab, sourceWhiteXYZ);
+    let out;
+    switch (sourceColorSpace) {
+      case constants.SRGB:
+        inputWASM = new backend.SRGBColor(input[0], input[1], input[2]);
+        out = backend.srgb_to_xyz(inputWASM);
+        break;
+      case constants.LINEAR_RGB:
+        inputWASM = new backend.LinearRGBColor(input[0], input[1], input[2]);
+        out = backend.linear_rgb_to_xyz(inputWASM);
+        break;
+      case constants.CIEXYZ:
+        out = new backend.CIEXYZColor(input[0], input[1], input[2]);
+        break;
+      case constants.CIELAB:
+        inputWASM = new backend.CIELabColor(input[0], input[1], input[2]);
+        out = backend.lab_to_xyz(inputWASM, sourceWhiteXYZ);
+        break;
+    }
+
+    return out;
+  } finally {
+    if (sourceWhiteXYZ) {
+      sourceWhiteXYZ.free();
+    }
+    if (inputWASM) {
+      inputWASM.free();
+    }
   }
 }
 
@@ -140,22 +158,36 @@ Converts a CIEXYZ color into another color space.
 @param backend WASM backend.
 */
 function XYZToColorSpace(xyzColor, targetColorSpace, targetWhite, backend) {
-  const [chromaX, chromaY, y] = targetWhite;
-  const targetWhiteXYZ = new backend.CIEXYZColor(
-    chromaX / chromaY * y,
-    y,
-    (1.0 - chromaX - chromaY) / chromaY * y
-  );
+  let targetWhiteXYZ;
+  try {
+    const [chromaX, chromaY, y] = targetWhite;
+    targetWhiteXYZ = new backend.CIEXYZColor(
+      chromaX / chromaY * y,
+      y,
+      (1.0 - chromaX - chromaY) / chromaY * y
+    );
 
-  switch (targetColorSpace) {
-    case constants.SRGB:
-      return backend.xyz_to_srgb(xyzColor);
-    case constants.LINEAR_RGB:
-      return backend.xyz_to_linear_rgb(xyzColor);
-    case constants.CIEXYZ:
-      return xyzColor;
-    case constants.CIELAB:
-      return backend.xyz_to_lab(xyzColor, targetWhiteXYZ);
+    let out;
+    switch (targetColorSpace) {
+      case constants.SRGB:
+        out = backend.xyz_to_srgb(xyzColor);
+        break;
+      case constants.LINEAR_RGB:
+        out = backend.xyz_to_linear_rgb(xyzColor);
+        break;
+      case constants.CIEXYZ:
+        out = xyzColor;
+        break;
+      case constants.CIELAB:
+        out = backend.xyz_to_lab(xyzColor, targetWhiteXYZ);
+        break;
+    }
+
+    return out;
+  } finally {
+    if (targetWhiteXYZ) {
+      targetWhiteXYZ.free();
+    }
   }
 }
 
@@ -167,7 +199,7 @@ function applyScaling(input, colorSpace) {
   switch (colorSpace) {
     case constants.SRGB:
     case constants.LINEAR_RGB:
-      return input;
+      return [input[0], input[1], input[2], input[3]];
     case constants.CIEXYZ:
       return [input[0] / 0.95047, input[1], input[2] / 1.08883, input[3]];
     case constants.CIELAB:
@@ -223,28 +255,39 @@ p5.prototype.color = function (...args) {
 
   const alpha = input[3];
 
-  /*
-  Convert from input color space to CIEXYZ.
-  */
-  const xyzColor = colorSpaceToXYZ(input, inputMode, this._cs_inputWhitePoint, this._cs_backend);
+  let xyzColor;
+  let outColor;
+  try {
+    /*
+    Convert from input color space to CIEXYZ.
+    */
+    xyzColor = colorSpaceToXYZ(input, inputMode, this._cs_inputWhitePoint, this._cs_backend);
 
-  /*
-  Convert from CIEXYZ to mixing color space.
-  */
-  let outColor = XYZToColorSpace(xyzColor, this._cs_mixingColorSpace, this._cs_mixingWhitePoint, this._cs_backend);
-  outColor = applyScaling(outColor, this._cs_mixingColorSpace);
+    /*
+    Convert from CIEXYZ to mixing color space.
+    */
+    outColor = XYZToColorSpace(xyzColor, this._cs_mixingColorSpace, this._cs_mixingWhitePoint, this._cs_backend);
+    const outColorScaled = applyScaling(outColor, this._cs_mixingColorSpace);
 
-  /*
-  Create p5.Color object.
-  */
-  let storedColorMode = this._cs_inputColorSpace;
-  this.colorMode(this._cs_mixingColorSpace)
-  let outColorP5 = this._cs_originalColor(outColor[0], outColor[1], outColor[2], alpha);
-  this.colorMode(storedColorMode);
+    /*
+    Create p5.Color object.
+    */
+    let storedColorMode = this._cs_inputColorSpace;
+    this.colorMode(this._cs_mixingColorSpace)
+    let outColorP5 = this._cs_originalColor(outColorScaled[0], outColorScaled[1], outColorScaled[2], alpha);
+    this.colorMode(storedColorMode);
 
-  outColorP5._cs_sourceColorSpace = this._cs_mixingColorSpace;
-  outColorP5._cs_sourceWhitePoint = this._cs_mixingWhitePoint;
-  return outColorP5;
+    outColorP5._cs_sourceColorSpace = this._cs_mixingColorSpace;
+    outColorP5._cs_sourceWhitePoint = this._cs_mixingWhitePoint;
+    return outColorP5;
+  } finally {
+    if (outColor) {
+      outColor.free();
+    }
+    if (xyzColor) {
+      xyzColor.free();
+    }
+  } 
 }
 
 p5.prototype._cs_originalFill = p5.prototype.fill;
@@ -266,11 +309,23 @@ function convertColor(color, targetColorSpace, targetWhitePoint, backend) {
   let sourceColorSpace = color._cs_sourceColorSpace || constants.SRGB;
   let sourceWhitePoint = color._cs_sourceWhitePoint || D65_2;
 
-  const scaledColor = unapplyScaling(color._array, sourceColorSpace);
-  const xyzColor = colorSpaceToXYZ(scaledColor, sourceColorSpace, sourceWhitePoint, backend);
-  const outColor = XYZToColorSpace(xyzColor, targetColorSpace, targetWhitePoint, backend);
+  let xyzColor;
+  let outColor;
 
-  return [outColor[0], outColor[1], outColor[2], color[3]];
+  try {
+    const scaledColor = unapplyScaling(color._array, sourceColorSpace);
+    const xyzColor = colorSpaceToXYZ(scaledColor, sourceColorSpace, sourceWhitePoint, backend);
+    const outColor = XYZToColorSpace(xyzColor, targetColorSpace, targetWhitePoint, backend);
+
+    return [outColor[0], outColor[1], outColor[2], color[3]];
+  } finally {
+    if (outColor) {
+      outColor.free();
+    }
+    if (xyzColor) {
+      xyzColor.free();
+    }
+  }
 }
 
 function ensureP5ColorWithSRGB(color, backend) {

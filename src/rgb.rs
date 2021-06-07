@@ -185,8 +185,8 @@ pub fn srgb_digamma(val: f32) -> f32 {
 }
 
 #[wasm_bindgen]
-pub fn srgb_to_linear_rgb(srgb: SRGBColor) -> LinearRGBColor {
-    let SRGBColor(r, g, b) = srgb;
+pub fn srgb_to_linear_rgb(srgb: &SRGBColor) -> LinearRGBColor {
+    let &SRGBColor(r, g, b) = srgb;
     LinearRGBColor(
         srgb_digamma(r),
         srgb_digamma(g),
@@ -195,8 +195,8 @@ pub fn srgb_to_linear_rgb(srgb: SRGBColor) -> LinearRGBColor {
 }
 
 #[wasm_bindgen]
-pub fn linear_rgb_to_srgb(lin_rgb: LinearRGBColor) -> SRGBColor {
-    let LinearRGBColor(lin_r, lin_g, lin_b) = lin_rgb;
+pub fn linear_rgb_to_srgb(lin_rgb: &LinearRGBColor) -> SRGBColor {
+    let &LinearRGBColor(lin_r, lin_g, lin_b) = lin_rgb;
     SRGBColor(
         srgb_gamma(lin_r),
         srgb_gamma(lin_g),
@@ -205,8 +205,8 @@ pub fn linear_rgb_to_srgb(lin_rgb: LinearRGBColor) -> SRGBColor {
 }
 
 #[wasm_bindgen]
-pub fn srgb_to_xyz(rgb: SRGBColor) -> CIEXYZColor {
-    let SRGBColor(r, g, b) = rgb;
+pub fn srgb_to_xyz(rgb: &SRGBColor) -> CIEXYZColor {
+    let &SRGBColor(r, g, b) = rgb;
     let r_lin = srgb_digamma(r);
     let g_lin = srgb_digamma(g);
     let b_lin = srgb_digamma(b);
@@ -219,8 +219,8 @@ pub fn srgb_to_xyz(rgb: SRGBColor) -> CIEXYZColor {
 }
 
 #[wasm_bindgen]
-pub fn xyz_to_srgb(xyz: CIEXYZColor) -> SRGBColor {
-    let CIEXYZColor(x, y, z) = xyz;
+pub fn xyz_to_srgb(xyz: &CIEXYZColor) -> SRGBColor {
+    let &CIEXYZColor(x, y, z) = xyz;
     SRGBColor(
         srgb_gamma(x * 3.240969941904521343773680225 + y * -1.537383177570093457943925235 + z * -0.4986107602930032836574892651),
         srgb_gamma(x * -0.9692436362808798261285146964 + y * 1.875967501507720667721122882 + z * 0.04155505740717561247596181202),
@@ -229,8 +229,8 @@ pub fn xyz_to_srgb(xyz: CIEXYZColor) -> SRGBColor {
 }
 
 #[wasm_bindgen]
-pub fn linear_rgb_to_xyz(lin_rgb: LinearRGBColor) -> CIEXYZColor {
-    let LinearRGBColor(r_lin, g_lin, b_lin) = lin_rgb;
+pub fn linear_rgb_to_xyz(lin_rgb: &LinearRGBColor) -> CIEXYZColor {
+    let &LinearRGBColor(r_lin, g_lin, b_lin) = lin_rgb;
     CIEXYZColor(
         r_lin * 0.4123907992659594812888840055 + g_lin * 0.3575843393838779637292839034 + b_lin * 0.1804807884018342875046284426,
         r_lin * 0.2126390058715103575395808154 + g_lin * 0.7151686787677559274585678068 + b_lin * 0.07219231536073371500185137706,
@@ -239,8 +239,8 @@ pub fn linear_rgb_to_xyz(lin_rgb: LinearRGBColor) -> CIEXYZColor {
 }
 
 #[wasm_bindgen]
-pub fn xyz_to_linear_rgb(xyz: CIEXYZColor) -> LinearRGBColor {
-    let CIEXYZColor(x, y, z) = xyz;
+pub fn xyz_to_linear_rgb(xyz: &CIEXYZColor) -> LinearRGBColor {
+    let &CIEXYZColor(x, y, z) = xyz;
     LinearRGBColor(
         x * 3.240969941904521343773680225 + y * -1.537383177570093457943925235 + z * -0.4986107602930032836574892651,
         x * -0.9692436362808798261285146964 + y * 1.875967501507720667721122882 + z * 0.04155505740717561247596181202,
@@ -258,30 +258,30 @@ mod tests {
 
     #[test]
     fn test_srgb_to_xyz() {
-        assert!(srgb_to_xyz(SRGBColor(0.0, 128.0_f32 / 255.0, 1.0)).equal_within(CIEXYZColor(0.25769, 0.2266, 0.9762), MARGIN));
-        assert!(srgb_to_xyz(SRGBColor(20.0 / 255.0, 30.0 / 255.0, 100.0 / 255.0)).equal_within(CIEXYZColor(0.0305, 0.02, 0.1228), MARGIN));
-        assert!(srgb_to_xyz(SRGBColor(1.0, 1.0, 1.0)).equal_within(CIEXYZColor(0.9505, 1.0, 1.089), MARGIN));
+        assert!(srgb_to_xyz(&SRGBColor(0.0, 128.0_f32 / 255.0, 1.0)).equal_within(CIEXYZColor(0.25769, 0.2266, 0.9762), MARGIN));
+        assert!(srgb_to_xyz(&SRGBColor(20.0 / 255.0, 30.0 / 255.0, 100.0 / 255.0)).equal_within(CIEXYZColor(0.0305, 0.02, 0.1228), MARGIN));
+        assert!(srgb_to_xyz(&SRGBColor(1.0, 1.0, 1.0)).equal_within(CIEXYZColor(0.9505, 1.0, 1.089), MARGIN));
     }
 
     #[test]
     fn test_xyz_to_srgb() {
-        assert!(xyz_to_srgb(CIEXYZColor(0.25769, 0.22658, 0.97623)).equal_within(SRGBColor(0.0, 128.0_f32 / 255.0, 1.0), MARGIN));
-        assert!(xyz_to_srgb(CIEXYZColor(0.0305, 0.02, 0.1228)).equal_within(SRGBColor(20.0 / 255.0, 30.0 / 255.0, 100.0 / 255.0), MARGIN));
-        assert!(xyz_to_srgb(CIEXYZColor(0.9505, 1.0, 1.089)).equal_within(SRGBColor(1.0, 1.0, 1.0), MARGIN));
+        assert!(xyz_to_srgb(&CIEXYZColor(0.25769, 0.22658, 0.97623)).equal_within(SRGBColor(0.0, 128.0_f32 / 255.0, 1.0), MARGIN));
+        assert!(xyz_to_srgb(&CIEXYZColor(0.0305, 0.02, 0.1228)).equal_within(SRGBColor(20.0 / 255.0, 30.0 / 255.0, 100.0 / 255.0), MARGIN));
+        assert!(xyz_to_srgb(&CIEXYZColor(0.9505, 1.0, 1.089)).equal_within(SRGBColor(1.0, 1.0, 1.0), MARGIN));
     }
 
     #[test]
     fn test_srgb_to_linear_rgb() {
-        assert!(srgb_to_linear_rgb(SRGBColor(0.0, 128.0_f32 / 255.0, 1.0)).equal_within(LinearRGBColor(0.0, 0.21586, 1.0), MARGIN));
-        assert!(srgb_to_linear_rgb(SRGBColor(20.0 / 255.0, 30.0 / 255.0, 100.0 / 255.0)).equal_within(LinearRGBColor(0.0069954, 0.012983, 0.12743768), MARGIN));
-        assert!(srgb_to_linear_rgb(SRGBColor(1.0, 1.0, 1.0)).equal_within(LinearRGBColor(1.0, 1.0, 1.0), MARGIN));
+        assert!(srgb_to_linear_rgb(&SRGBColor(0.0, 128.0_f32 / 255.0, 1.0)).equal_within(LinearRGBColor(0.0, 0.21586, 1.0), MARGIN));
+        assert!(srgb_to_linear_rgb(&SRGBColor(20.0 / 255.0, 30.0 / 255.0, 100.0 / 255.0)).equal_within(LinearRGBColor(0.0069954, 0.012983, 0.12743768), MARGIN));
+        assert!(srgb_to_linear_rgb(&SRGBColor(1.0, 1.0, 1.0)).equal_within(LinearRGBColor(1.0, 1.0, 1.0), MARGIN));
     }
 
     #[test]
     fn test_linear_rgb_to_srgb() {
-        assert!(linear_rgb_to_srgb(LinearRGBColor(0.0, 0.21586, 1.0)).equal_within(SRGBColor(0.0, 128.0_f32 / 255.0, 1.0), MARGIN));
-        assert!(linear_rgb_to_srgb(LinearRGBColor(0.0069954, 0.012983, 0.12743768)).equal_within(SRGBColor(20.0 / 255.0, 30.0 / 255.0, 100.0 / 255.0), MARGIN));
-        assert!(linear_rgb_to_srgb(LinearRGBColor(1.0, 1.0, 1.0)).equal_within(SRGBColor(1.0, 1.0, 1.0), MARGIN));
+        assert!(linear_rgb_to_srgb(&LinearRGBColor(0.0, 0.21586, 1.0)).equal_within(SRGBColor(0.0, 128.0_f32 / 255.0, 1.0), MARGIN));
+        assert!(linear_rgb_to_srgb(&LinearRGBColor(0.0069954, 0.012983, 0.12743768)).equal_within(SRGBColor(20.0 / 255.0, 30.0 / 255.0, 100.0 / 255.0), MARGIN));
+        assert!(linear_rgb_to_srgb(&LinearRGBColor(1.0, 1.0, 1.0)).equal_within(SRGBColor(1.0, 1.0, 1.0), MARGIN));
     }
 }
 
