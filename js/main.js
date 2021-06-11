@@ -231,7 +231,7 @@ p5.prototype._cs_convertImageData = function (imageData, conversionFunc, whitePo
   // To the last part of the conversion on the main thread.
   const mainThreadOffset = numWorkers * pixelsPerThread * 4;
   const mainThreadLen = dataLength - mainThreadOffset;
-  this._cs_backend[conversionFunc](this._cs_allocationPtr, mainThreadOffset, mainThreadLen);
+  this._cs_backend[conversionFunc](this._cs_allocationPtr, mainThreadOffset, mainThreadLen, ...whitePoint);
 
   // Wait for worker threads to finish
   while(true) {
