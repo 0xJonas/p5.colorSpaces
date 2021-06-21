@@ -1,12 +1,26 @@
 <!DOCTYPE html>
 
 <html>
-    <head>
-        <title>p5.colorspaces Test</title>
-        <script src="p5.js"></script>
-        <script type="module" src="../dist/p5.colorspaces.js"></script>
-    </head>
-    <body>
-        <script src="sketch.js"></script>
-    </body>
+  <head>
+    <meta charset="utf-8" />
+    <title>p5.colorspaces Test</title>
+    <script src="p5.js" defer></script>
+    <script type="module" src="../dist/p5.colorspaces.js"></script>
+    <script src="runTests.js" defer></script>
+    <link rel="stylesheet" href="../node_modules/mocha/mocha.css" />
+  </head>
+
+  <body>
+    <div id="mocha"></div>
+    <div id="p5canvas" style="display: none"></div>
+    <script src="../node_modules/chai/chai.js"></script>
+    <script src="../node_modules/mocha/mocha.js"></script>
+
+    <script>
+      mocha.setup("bdd");
+    </script>
+
+    <script src="colorOverrides.js"></script>
+
+  </body>
 </html>

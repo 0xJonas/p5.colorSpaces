@@ -7,6 +7,8 @@
     "test": "cargo test && wasm-pack test --headless"
   },
   "devDependencies": {
-    "rollup": "^2.50.1"
+    "rollup": "^2.50.1",
+    "mocha": "^9.0.1",
+    "chai": "^4.3.4"
   }
 }
