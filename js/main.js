@@ -318,5 +318,7 @@ p5.prototype.warpToColorSpace = function (colorSpace, whitePoint) {
   this._cs_checkIfBackendLoaded();
 
   this._cs_mixingColorSpace = colorSpace;
-  this._cs_mixingWhitePoint = whitePoint;
+  if (whitePoint) {
+    this._cs_mixingWhitePoint = whitePoint;
+  }
 }

@@ -15,7 +15,7 @@ p5.prototype.colorMode = function (...args) {
   let white;
   
   if (args[0] instanceof Array) {
-    mode = args[0][1];
+    mode = args[0][0];
     white = args[0][1];
   } else {
     mode = args[0];
@@ -50,7 +50,7 @@ p5.prototype.colorMode = function (...args) {
     maxes might have been overridden by one of p5.colorSpaces' modes.
     */
     this._cs_originalColorMode(this.RGB, ...this._cs_currentRGBMaxes);
-  } else if (mode === this.HSV || mode === this.HSL) {
+  } else if (mode === this.HSB || mode === this.HSL) {
     /*
     Do nothing special for p5js's HSV and HSB modes.
     */
@@ -69,13 +69,14 @@ p5.prototype.colorMode = function (...args) {
 /*
 Creates a grayscale color for a given gray value and color space.
 */
-function createGrayscaleTristimulus(gray, colorSpace) {
+function createGrayscaleTristimulus(gray, colorSpace, white) {
   switch (colorSpace) {
     case constants.SRGB:
     case constants.LINEAR_RGB:
       return [gray, gray, gray, 1.0];
     case constants.CIEXYZ:
-      return [0.0, gray, 0.0, 1.0];
+      const [chromaX, chromaY, y] = white;
+      return [chromaX / chromaY * y * gray, y * gray, (1.0 - chromaX - chromaY) / chromaY * y * gray, 1.0];
     case constants.CIELAB:
     case constants.CIELCH:
     case constants.CIELUV:
@@ -176,7 +177,9 @@ function XYZToColorSpace(xyzColor, targetColorSpace, targetWhite, backend) {
         out = backend.xyz_to_linear_rgb(xyzColor);
         break;
       case constants.CIEXYZ:
-        out = xyzColor;
+        // Clone the color because the caller of this function expects a different object from the
+        // input to be returned.
+        out = new backend.CIEXYZColor(xyzColor[0], xyzColor[1], xyzColor[2]);
         break;
       case constants.CIELAB:
         out = backend.xyz_to_lab(xyzColor, targetWhiteXYZ);
@@ -238,7 +241,7 @@ p5.prototype.color = function (...args) {
     Color mode is a p5.colorSpaces mode and the input is a single number, representing
     a gray value.
     */
-    input = createGrayscaleTristimulus(args[0], this._cs_inputColorSpace);
+    input = createGrayscaleTristimulus(args[0], this._cs_inputColorSpace, this._cs_inputWhitePoint);
     inputMode = this._cs_inputColorSpace
   }
   else if (args.length >= 3 && typeof args[0] == "number" && typeof args[1] == "number" && typeof args[2] == "number") {
