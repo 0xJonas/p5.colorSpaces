@@ -171,4 +171,69 @@ describe("Color overrides", function () {
       })
     });
   });
+
+  describe("Component query functions", function () {
+    it("red()", function () {
+      myp5.warpToColorSpace(myp5.CIELAB, myp5.D65_2);
+      myp5.colorMode(myp5.RGB, 255);
+      myp5.colorMode([myp5.CIELAB, myp5.D65_2]);
+      const c = myp5.color(60, 60, 30);
+      assert.isBelow(Math.abs(myp5.red(c) - 247.262) / 255, ERROR_MARGIN);
+    });
+
+    it("green()", function () {
+      myp5.warpToColorSpace(myp5.CIELAB, myp5.D65_2);
+      myp5.colorMode(myp5.RGB, 255);
+      myp5.colorMode([myp5.CIELAB, myp5.D65_2]);
+      const c = myp5.color(60, 60, 30);
+      assert.isBelow(Math.abs(myp5.green(c) - 90.873) / 255, ERROR_MARGIN);
+    });
+
+    it("blue()", function () {
+      myp5.warpToColorSpace(myp5.CIELAB, myp5.D65_2);
+      myp5.colorMode(myp5.RGB, 255);
+      myp5.colorMode([myp5.CIELAB, myp5.D65_2]);
+      const c = myp5.color(60, 60, 30);
+      assert.isBelow(Math.abs(myp5.blue(c) - 95.485) / 255, ERROR_MARGIN);
+    });
+
+    it("hue()", function () {
+      myp5.warpToColorSpace(myp5.CIELAB, myp5.D65_2);
+      myp5.colorMode([myp5.CIELAB, myp5.D65_2]);
+      const c = myp5.color(60, 60, 30);
+      assert.isBelow(Math.abs(myp5.hue(c) - 358.23) / 360.0, ERROR_MARGIN);
+    });
+
+    describe("saturation()", function () {
+      // p5.saturation() returns different results depending on the color mode.
+      it("HSB", function () {
+        myp5.warpToColorSpace(myp5.CIELAB, myp5.D65_2);
+        myp5.colorMode([myp5.CIELAB, myp5.D65_2]);
+        const c = myp5.color(60, 60, 30);
+        myp5.colorMode(myp5.HSB);
+        assert.isBelow(Math.abs(myp5.saturation(c) - 63.248) / 100.0, ERROR_MARGIN);
+      });
+      it("HSL", function () {
+        myp5.warpToColorSpace(myp5.CIELAB, myp5.D65_2);
+        myp5.colorMode([myp5.CIELAB, myp5.D65_2]);
+        const c = myp5.color(60, 60, 30);
+        myp5.colorMode(myp5.HSL);
+        assert.isBelow(Math.abs(myp5.saturation(c) - 90.995) / 100.0, ERROR_MARGIN);
+      });
+    });
+
+    it("lightness()", function () {
+      myp5.warpToColorSpace(myp5.CIELAB, myp5.D65_2);
+      myp5.colorMode([myp5.CIELAB, myp5.D65_2]);
+      const c = myp5.color(60, 60, 30);
+      assert.isBelow(Math.abs(myp5.lightness(c) - 66.301) / 100.0, ERROR_MARGIN);
+    });
+
+    it("brightness()", function () {
+      myp5.warpToColorSpace(myp5.CIELAB, myp5.D65_2);
+      myp5.colorMode([myp5.CIELAB, myp5.D65_2]);
+      const c = myp5.color(60, 60, 30);
+      assert.isBelow(Math.abs(myp5.brightness(c) - 96.966) / 100.0, ERROR_MARGIN);
+    });
+  });
 });

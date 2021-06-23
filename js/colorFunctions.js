@@ -7,7 +7,18 @@ Overrides for p5.js color functions
 
 p5.prototype._cs_inputColorSpace = p5.prototype.RGB;
 p5.prototype._cs_inputWhitePoint = D65_2;
-p5.prototype._cs_currentRGBMaxes = [255.0, 255.0, 255.0, 255.0];
+p5.prototype._cs_inputMaxes = {
+  [p5.prototype.RGB]: [255.0, 255.0, 255.0, 255.0],
+  [p5.prototype.HSB]: [360.0, 100.0, 100.0, 1.0],
+  [p5.prototype.HSL]: [360.0, 100.0, 100.0, 1.0],
+  [constants.SRGB]: [1.0, 1.0, 1.0, 1.0],
+  [constants.LINEAR_RGB]: [1.0, 1.0, 1.0, 1.0],
+  [constants.CIEXYZ]: [1.0, 1.0, 1.0, 1.0],
+  [constants.CIELAB]: [1.0, 1.0, 1.0, 1.0],
+  [constants.CIELUV]: [1.0, 1.0, 1.0, 1.0],
+  [constants.CIELCH]: [1.0, 1.0, 1.0, 1.0],
+  [constants.CIELCHUV]: [1.0, 1.0, 1.0, 1.0]
+};
 
 p5.prototype._cs_originalColorMode = p5.prototype.colorMode;
 p5.prototype.colorMode = function (...args) {
@@ -22,39 +33,32 @@ p5.prototype.colorMode = function (...args) {
     white = this._cs_inputWhitePoint;
   }
 
-  if (mode == p5.prototype.RGB) {
-    // Store maxes for RGB because we override them for p5.colorSpaces Colors
-    switch (args.length) {
-      /*
-      When no values for the maxes are given, p5.js reuses the last values that were submitted to colorMode().
-      (i.e. it does not use a default value of 255 or alike.)
-
-      The maxes for p5.RGB, p5.HSV and p5.HSB are also all separate values.
-      */
-      case 2:
-        const max = args[1];
-        this._cs_currentRGBMaxes = [max, max, max, max];
-        break;
-      case 4:
-        this._cs_currentRGBMaxes = [args[1], args[2], args[3], this._cs_currentRGBMaxes[4]];
-        break;
-      case 5:
-        this._cs_currentRGBMaxes = [args[1], args[2], args[3], args[4]];
-        break;
-    }
+  let maxes = this._cs_inputMaxes[mode];
+  switch (args.length) {
+    case 2:
+      const max = args[1];
+      maxes = [max, max, max, max];
+      break;
+    case 4:
+      maxes = [args[1], args[2], args[3], maxes[4]];
+      break;
+    case 5:
+      maxes = [args[1], args[2], args[3], args[4]];
+      break;
   }
+  this._cs_inputMaxes[mode] = maxes;
 
   if (mode === this.RGB) {
     /*
     Explicitly set the maxes when p5.js's RGB mode is set, because the
     maxes might have been overridden by one of p5.colorSpaces' modes.
     */
-    this._cs_originalColorMode(this.RGB, ...this._cs_currentRGBMaxes);
+    this._cs_originalColorMode(this.RGB, ...this._cs_inputMaxes[this.RGB]);
   } else if (mode === this.HSB || mode === this.HSL) {
     /*
     Do nothing special for p5js's HSV and HSB modes.
     */
-    this._cs_originalColorMode(...args);
+    this._cs_originalColorMode(mode, ...maxes);
   } else {
     /*
     All p5.colorSpaces color modes use p5.js's RGB mode under the hood,
@@ -212,6 +216,8 @@ function applyScaling(input, colorSpace) {
 
 p5.prototype._cs_originalColor = p5.prototype.color;
 p5.prototype.color = function (...args) {
+  this._cs_checkIfBackendLoaded();
+
   /*
   Convert input into a known format.
   */
@@ -331,12 +337,63 @@ function convertColor(color, targetColorSpace, targetWhitePoint, backend) {
   }
 }
 
-function ensureP5ColorWithSRGB(color, backend) {
-  let colorObj;
-  if (!(color instanceof p5.Color)) {
-    colorObj = this.color(color);
+function calcHSL(r, g, b) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const chroma = max - min;
+  const lightness = (max + min) / 2;
+
+  if (min == 1.0) {
+    // White, return immediately to prevent division by 0 later.
+    return [0.0, 0.0, 1.0]
+  } else if (max == 0.0) {
+    // Black, return immediately to prevent division by 0 later.
+    return [0.0, 0.0, 0.0]
   } else {
-    colorObj = color;
+    let hue = 0.0;
+
+    if (chroma == 0) {
+      hue = 0.0;
+    } else if (max == r) {
+      hue = ((g - b) / chroma + 6) % 6;
+    } else if (max == g) {
+      hue = (b - r) / chroma + 2;
+    } else {
+      hue = (r - g) / chroma + 4;
+    }
+
+    return [hue / 6.0, chroma / (1 - Math.abs(2 * lightness - 1)), lightness];
+  } 
+}
+
+function calcHSB(r, g, b) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const chroma = max - min;
+
+  let hue = 0.0;
+  if (max == 0) {
+    // Black, return immediately to prevent division by 0 later.
+    return [0, 0, 0];
+  } else if (chroma == 0) {
+    hue = 0.0;
+  } else if (max == r) {
+    hue = ((g - b) / chroma + 6) % 6;
+  } else if (max == g) {
+    hue = (b - r) / chroma + 2;
+  } else {
+    hue = (r - g) / chroma + 4;
+  }
+
+  return [hue / 6.0, chroma / max, max];
+}
+
+p5.prototype._cs_ensureP5ColorWithSRGB = function (colorArgs, backend) {
+  let colorObj;
+  if (!(colorArgs instanceof p5.Color)) {
+    colorObj = this.color(...colorArgs);
+  } else {
+    colorObj = colorArgs;
   }
 
   if (!colorObj[constants.SRGB]) {
@@ -347,83 +404,80 @@ function ensureP5ColorWithSRGB(color, backend) {
 }
 
 p5.prototype._cs_originalRed = p5.prototype.red;
-p5.prototype.red = function (color) {
-  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
-  return colorObj[constants.SRGB][0] * this._cs_currentRGBMaxes[0];
+p5.prototype.red = function (...args) {
+  this._cs_checkIfBackendLoaded();
+  const colorObj = this._cs_ensureP5ColorWithSRGB(args, this._cs_backend);
+  return colorObj[constants.SRGB][0] * this._cs_inputMaxes[p5.prototype.RGB][0];
 }
 
 p5.prototype._cs_originalGreen = p5.prototype.green;
-p5.prototype.green = function (color) {
-  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
-  return colorObj[constants.SRGB][1] * this._cs_currentRGBMaxes[1];
+p5.prototype.green = function (...args) {
+  this._cs_checkIfBackendLoaded();
+  const colorObj = this._cs_ensureP5ColorWithSRGB(args, this._cs_backend);
+  return colorObj[constants.SRGB][1] * this._cs_inputMaxes[p5.prototype.RGB][1];
 }
 
 p5.prototype._cs_originalBlue = p5.prototype.blue;
-p5.prototype.blue = function (color) {
-  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
-  return colorObj[constants.SRGB][2] * this._cs_currentRGBMaxes[2];
+p5.prototype.blue = function (...args) {
+  this._cs_checkIfBackendLoaded();
+  const colorObj = this._cs_ensureP5ColorWithSRGB(args, this._cs_backend);
+  return colorObj[constants.SRGB][2] * this._cs_inputMaxes[p5.prototype.RGB][2];
 }
 
 p5.prototype._cs_originalHue = p5.prototype.hue;
-p5.prototype.hue = function (color) {
-  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+p5.prototype.hue = function (...args) {
+  this._cs_checkIfBackendLoaded();
+  const colorObj = this._cs_ensureP5ColorWithSRGB(args, this._cs_backend);
 
-  const storedColorMode = this._cs_inputColorSpace;
-  this.colorMode(constants.SRGB);
-  const tempColor = this._cs_originalColor(
-    colorObj[constants.SRGB][0],
-    colorObj[constants.SRGB][1],
-    colorObj[constants.SRGB][2],
-  );
-  this.colorMode(storedColorMode);
-
-  return this._cs_originalHue(tempColor);
+  if (this._cs_inputColorSpace == this.HSB) {
+    if (!colorObj._cs_hsb) { 
+      colorObj._cs_hsb = calcHSB(colorObj[constants.SRGB][0], colorObj[constants.SRGB][1], colorObj[constants.SRGB][2]);
+    }
+    return colorObj._cs_hsb[0] * this._cs_inputMaxes[this.HSB][0];
+  } else {
+    if (!colorObj._cs_hsl) { 
+      colorObj._cs_hsl = calcHSL(colorObj[constants.SRGB][0], colorObj[constants.SRGB][1], colorObj[constants.SRGB][2]);
+    }
+    return colorObj._cs_hsl[0] * this._cs_inputMaxes[this.HSL][0];
+  }
 }
 
 p5.prototype._cs_originalSaturation = p5.prototype.saturation;
-p5.prototype.saturation = function (color) {
-  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+p5.prototype.saturation = function (...args) {
+  this._cs_checkIfBackendLoaded();
+  let colorObj = this._cs_ensureP5ColorWithSRGB(args, this._cs_backend);
 
-  const storedColorMode = this._cs_inputColorSpace;
-  this.colorMode(constants.SRGB);
-  const tempColor = this._cs_originalColor(
-    colorObj[constants.SRGB][0],
-    colorObj[constants.SRGB][1],
-    colorObj[constants.SRGB][2],
-  );
-  this.colorMode(storedColorMode);
-
-  return this._cs_originalSaturation(tempColor);
+  if (this._cs_inputColorSpace == this.HSB) {
+    if (!colorObj._cs_hsb) { 
+      colorObj._cs_hsb = calcHSB(colorObj[constants.SRGB][0], colorObj[constants.SRGB][1], colorObj[constants.SRGB][2]);
+    }
+    return colorObj._cs_hsb[1] * this._cs_inputMaxes[this.HSB][1];
+  } else {
+    if (!colorObj._cs_hsl) { 
+      colorObj._cs_hsl = calcHSL(colorObj[constants.SRGB][0], colorObj[constants.SRGB][1], colorObj[constants.SRGB][2]);
+    }
+    return colorObj._cs_hsl[1] * this._cs_inputMaxes[this.HSL][1];
+  }
 }
 
 p5.prototype._cs_originalLightness = p5.prototype.lightness;
-p5.prototype.lightness = function (color) {
-  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+p5.prototype.lightness = function (...args) {
+  this._cs_checkIfBackendLoaded();
+  let colorObj = this._cs_ensureP5ColorWithSRGB(args, this._cs_backend);
 
-  const storedColorMode = this._cs_inputColorSpace;
-  this.colorMode(constants.SRGB);
-  const tempColor = this._cs_originalColor(
-    colorObj[constants.SRGB][0],
-    colorObj[constants.SRGB][1],
-    colorObj[constants.SRGB][2],
-  );
-  this.colorMode(storedColorMode);
-
-  return this._cs_originalLightness(tempColor);
+  if (!colorObj._cs_hsl) { 
+    colorObj._cs_hsl = calcHSL(colorObj[constants.SRGB][0], colorObj[constants.SRGB][1], colorObj[constants.SRGB][2]);
+  }
+  return colorObj._cs_hsl[2] * this._cs_inputMaxes[this.HSL][2];
 }
 
 p5.prototype._cs_originalBrightness = p5.prototype.brightness;
-p5.prototype.brightness = function (color) {
-  let colorObj = ensureP5ColorWithSRGB(color, this._cs_backend);
+p5.prototype.brightness = function (...args) {
+  this._cs_checkIfBackendLoaded();
+  let colorObj = this._cs_ensureP5ColorWithSRGB(args, this._cs_backend);
 
-  const storedColorMode = this._cs_inputColorSpace;
-  this.colorMode(constants.SRGB);
-  const tempColor = this._cs_originalColor(
-    colorObj[constants.SRGB][0],
-    colorObj[constants.SRGB][1],
-    colorObj[constants.SRGB][2],
-  );
-  this.colorMode(storedColorMode);
-
-  return this._cs_originalBrightness(tempColor);
+  if (!colorObj._cs_hsb) { 
+    colorObj._cs_hsb = calcHSB(colorObj[constants.SRGB][0], colorObj[constants.SRGB][1], colorObj[constants.SRGB][2]);
+  }
+  return colorObj._cs_hsb[2] * this._cs_inputMaxes[this.HSB][2];
 }
