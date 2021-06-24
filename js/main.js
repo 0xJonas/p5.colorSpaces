@@ -4,6 +4,7 @@ import init, * as backend from "../pkg/colorspaces.js";
 import * as constants from "./constants.js";
 import * as white from "./whitepoints.js";
 import "./colorFunctions.js";
+import "./colorQuery.js";
 
 /*
 Error messages and logging
