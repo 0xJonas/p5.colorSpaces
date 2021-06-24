@@ -1,14 +1,3 @@
-const assert = chai.assert;
-const ERROR_MARGIN = 0.5e-3;
-
-function arraysEqualWithin(a1, a2, margin) {
-  for (let i = 0; i < Math.min(a1.length, a2.length); i++) {
-    if (Math.abs(a1[i] - a2[i]) > margin) {
-      assert.fail(`Arrays are not equal within margin: [${a1}] != [${a2}]`);
-    }
-  }
-}
-
 describe("Color overrides", function () {
   describe("color()", function () {
     it("returns an srgb color in sRGB space.", function () {

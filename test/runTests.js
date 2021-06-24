@@ -8,6 +8,7 @@ const sketch = p => {
   }
 
   p.setup = function () {
+    p.createCanvas(800, 600);
     p.noLoop();
     mocha.run();
   }

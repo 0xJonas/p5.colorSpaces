@@ -320,6 +320,6 @@ p5.prototype.warpToColorSpace = function (colorSpace, whitePoint) {
 
   this._cs_mixingColorSpace = colorSpace;
   if (whitePoint) {
-    this._cs_mixingWhitePoint = whitePoint;
+    this._cs_mixingWhitePoint = white.D65_2;
   }
 }
