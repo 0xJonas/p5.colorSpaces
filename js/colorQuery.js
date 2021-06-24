@@ -2,6 +2,11 @@ import { applyScaling, unapplyScaling, convertColor } from "./colorUtils.js";
 import * as constants from "./constants.js";
 import { D65_2 } from "./whitepoints.js";
 
+/*
+Calculates an HSL triple from an RGB triple.
+The output components are in the range [0.0; 1.0] and the input is expected
+to also be in the range [0.0; 1.0].
+*/
 function calcHSL(r, g, b) {
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
@@ -31,6 +36,11 @@ function calcHSL(r, g, b) {
   } 
 }
 
+/*
+Calculates an HSB/HSV triple from an RGB triple.
+The output components are in the range [0.0; 1.0] and the input is expected
+to also be in the range [0.0; 1.0].
+*/
 function calcHSB(r, g, b) {
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
@@ -53,6 +63,13 @@ function calcHSB(r, g, b) {
   return [hue / 6.0, chroma / max, max];
 }
 
+/*
+Returns a color object which has a property containing sRGB values for this color.
+
+This function always expects an Array as it's first argument. If the first index of this
+Array is already a color object, the object will have it's sRGB values added to it.
+Otherwise a color object is constructed out of the arguments first.
+*/
 p5.prototype._cs_ensureP5ColorWithSRGB = function (colorArgs, backend) {
   let colorObj;
   if (!(colorArgs[0] instanceof p5.Color)) {
@@ -77,6 +94,9 @@ p5.prototype._cs_ensureP5ColorWithSRGB = function (colorArgs, backend) {
   return colorObj;
 }
 
+/*
+Returns the red component in sRGB space of the color argument.
+*/
 p5.prototype._cs_originalRed = p5.prototype.red;
 p5.prototype.red = function (...args) {
   this._cs_checkIfBackendLoaded();
@@ -84,6 +104,9 @@ p5.prototype.red = function (...args) {
   return colorObj[constants.SRGB][0] * this._cs_inputMaxes[p5.prototype.RGB][0];
 }
 
+/*
+Returns the green component in sRGB space of the color argument.
+*/
 p5.prototype._cs_originalGreen = p5.prototype.green;
 p5.prototype.green = function (...args) {
   this._cs_checkIfBackendLoaded();
@@ -91,6 +114,9 @@ p5.prototype.green = function (...args) {
   return colorObj[constants.SRGB][1] * this._cs_inputMaxes[p5.prototype.RGB][1];
 }
 
+/*
+Returns the blue component in sRGB space of the color argument.
+*/
 p5.prototype._cs_originalBlue = p5.prototype.blue;
 p5.prototype.blue = function (...args) {
   this._cs_checkIfBackendLoaded();
@@ -98,6 +124,9 @@ p5.prototype.blue = function (...args) {
   return colorObj[constants.SRGB][2] * this._cs_inputMaxes[p5.prototype.RGB][2];
 }
 
+/*
+Returns the hue of the color argument, based on sRGB.
+*/
 p5.prototype._cs_originalHue = p5.prototype.hue;
 p5.prototype.hue = function (...args) {
   this._cs_checkIfBackendLoaded();
@@ -116,6 +145,12 @@ p5.prototype.hue = function (...args) {
   }
 }
 
+/*
+Returns the saturation of the color argument. If the current colorMode
+is p5.HSB, the saturation will be calculated from the HSB representation.
+If the colorMode is anything else (p5.HSL, SRGB or others), HSL representation
+will be used.
+*/
 p5.prototype._cs_originalSaturation = p5.prototype.saturation;
 p5.prototype.saturation = function (...args) {
   this._cs_checkIfBackendLoaded();
@@ -134,6 +169,9 @@ p5.prototype.saturation = function (...args) {
   }
 }
 
+/*
+Returns the lightness component of the HSL representation of the color argument.
+*/
 p5.prototype._cs_originalLightness = p5.prototype.lightness;
 p5.prototype.lightness = function (...args) {
   this._cs_checkIfBackendLoaded();
@@ -145,6 +183,9 @@ p5.prototype.lightness = function (...args) {
   return colorObj._cs_hsl[2] * this._cs_inputMaxes[this.HSL][2];
 }
 
+/*
+Returns the brightness component of the HSB/HSV representation of the color argument.
+*/
 p5.prototype._cs_originalBrightness = p5.prototype.brightness;
 p5.prototype.brightness = function (...args) {
   this._cs_checkIfBackendLoaded();
