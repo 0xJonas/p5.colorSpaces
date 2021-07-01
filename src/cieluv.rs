@@ -15,6 +15,15 @@ const CORRECTION_FACTOR_3RD_ROOT: [f32; 5] = [
 #[derive(Debug)]
 pub struct CIELuvColor(pub f32, pub f32, pub f32);
 
+#[wasm_bindgen]
+impl CIELuvColor {
+
+    #[wasm_bindgen(constructor)]
+    pub fn new(l: f32, u: f32, v: f32) -> CIELuvColor {
+        CIELuvColor(l, u, v)
+    }
+}
+
 impl TristimulusColor for CIELuvColor {
 
     fn get_0(&self) -> f32 {

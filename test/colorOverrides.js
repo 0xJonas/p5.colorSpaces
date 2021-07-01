@@ -24,6 +24,12 @@ describe("Color overrides", function () {
       arraysEqualWithin(c._array, [61.865 / 100.0, (-19.882 + 128.0) / 255, (-31.807 + 128.0) / 255], ERROR_MARGIN);
     });
 
+    it("returns a CIELuv color in CIELuv space.", function () {
+      myp5.warpToColorSpace(myp5.CIELUV, myp5.D65_2);
+      const c = myp5.color(0, 162, 205);
+      arraysEqualWithin(c._array, [61.865 / 100.0, (-43.251 + 103) / 298, (-47.254 + 154) / 282], ERROR_MARGIN);
+    });
+
     describe("creates a tristimulus color from a grayscale parameter.", function () {
       it("p5.RGB.", function () {
         myp5.warpToColorSpace(myp5.SRGB);
@@ -56,6 +62,13 @@ describe("Color overrides", function () {
       it("CIELab", function () {
         myp5.warpToColorSpace(myp5.SRGB);
         myp5.colorMode([myp5.CIELAB, myp5.D65_2]);
+        const c = myp5.color(54.368);
+        arraysEqualWithin(c._array, [130 / 255, 130 / 255, 130 / 255], ERROR_MARGIN);
+      });
+
+      it("CIELuv", function () {
+        myp5.warpToColorSpace(myp5.SRGB);
+        myp5.colorMode([myp5.CIELUV, myp5.D65_2]);
         const c = myp5.color(54.368);
         arraysEqualWithin(c._array, [130 / 255, 130 / 255, 130 / 255], ERROR_MARGIN);
       });
@@ -140,6 +153,13 @@ describe("Color overrides", function () {
       myp5.warpToColorSpace(myp5.CIEXYZ);
       myp5.colorMode(myp5.CIELAB);
       const c = myp5.color(30.116, 64.78, -64.946);
+      arraysEqualWithin(c._array, [0.1392 / 0.95047, 0.06283, 0.41029 / 1.08883], ERROR_MARGIN);
+    });
+
+    it("can set the colorMode to CIELuv.", function () {
+      myp5.warpToColorSpace(myp5.CIEXYZ);
+      myp5.colorMode(myp5.CIELUV);
+      const c = myp5.color(30.116, 16.81, -87.622);
       arraysEqualWithin(c._array, [0.1392 / 0.95047, 0.06283, 0.41029 / 1.08883], ERROR_MARGIN);
     });
 

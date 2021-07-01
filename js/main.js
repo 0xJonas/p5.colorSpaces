@@ -265,6 +265,9 @@ p5.prototype.enterColorSpace = function(colorSpace, whitePoint) {
     case constants.CIELAB:
       conversionFunc = "convert_memory_srgb_to_lab";
       break;
+    case constants.CIELUV:
+      conversionFunc = "convert_memory_srgb_to_luv";
+      break;
   }
 
   const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
@@ -298,6 +301,9 @@ p5.prototype.exitColorSpace = function() {
       break;
     case constants.CIELAB:
       conversionFunc = "convert_memory_lab_to_srgb";
+      break;
+    case constants.CIELUV:
+      conversionFunc = "convert_memory_luv_to_srgb";
       break;
   }
 
