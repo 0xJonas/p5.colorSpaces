@@ -21,7 +21,7 @@ describe("Color overrides", function () {
     it("returns a CIELab color in CIELab space.", function () {
       myp5.warpToColorSpace(myp5.CIELAB, myp5.D65_2);
       const c = myp5.color(0, 162, 205);
-      arraysEqualWithin(c._array, [61.865 / 100.0, (-19.882 + 128.0) / 255, (-31.807 + 128.0) / 255], ERROR_MARGIN);
+      arraysEqualWithin(c._array, [61.865 / 100.0, (-19.882 + 106.0) / 224, (-31.807 + 128.0) / 243], ERROR_MARGIN);
     });
 
     it("returns a CIELuv color in CIELuv space.", function () {

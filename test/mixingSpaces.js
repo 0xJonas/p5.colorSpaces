@@ -10,10 +10,10 @@ describe("Mixing color spaces", function () {
     it("exitColorSpace() works correctly", function () {
       myp5.colorMode(myp5.RGB, 255);
       myp5.warpToColorSpace(myp5.CIELAB, myp5.D65_2);
-      myp5.background(189, 155, 5);
+      myp5.background(188, 155, 3);
       myp5.exitColorSpace();
       const probe = myp5.get(myp5.random(0, myp5.width), myp5.random(0, myp5.height));
-      arraysEqualWithin(probe, [189, 155, 5], 1);
+      arraysEqualWithin(probe, [188, 155, 3], 1.01);
     });
   });
 

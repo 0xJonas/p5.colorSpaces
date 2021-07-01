@@ -37,6 +37,10 @@ function colorSpaceToXYZ(input, sourceColorSpace, sourceWhite, backend) {
         inputWASM = new backend.CIELabColor(input[0], input[1], input[2]);
         out = backend.lab_to_xyz(inputWASM, sourceWhiteXYZ);
         break;
+      case constants.CIELUV:
+        inputWASM = new backend.CIELuvColor(input[0], input[1], input[2]);
+        out = backend.luv_to_xyz(inputWASM, sourceWhiteXYZ);
+        break;
     }
 
     return out;
@@ -84,6 +88,9 @@ function XYZToColorSpace(xyzColor, targetColorSpace, targetWhite, backend) {
       case constants.CIELAB:
         outWasm = backend.xyz_to_lab(xyzColor, targetWhiteXYZ);
         break;
+      case constants.CIELUV:
+        outWasm = backend.xyz_to_luv(xyzColor, targetWhiteXYZ);
+        break;
     }
    
     return [outWasm[0], outWasm[1], outWasm[2]];
@@ -109,7 +116,9 @@ export function unapplyScaling(input, colorSpace) {
     case constants.CIEXYZ:
       return [input[0] * 0.95047, input[1], input[2] * 1.08883, input[3]];
     case constants.CIELAB:
-      return [input[0] * 100.0, (input[1] * 255) - 128, (input[2] * 255) - 128, input[3]];
+      return [input[0] * 100.0, (input[1] * 224) - 106, (input[2] * 243) - 128, input[3]];
+    case constants.CIELUV:
+      return [input[0] * 100.0, (input[1] * 298) - 103, (input[2] * 282) - 154, input[3]];
   }
 }
 
@@ -125,7 +134,9 @@ export function applyScaling(input, colorSpace) {
     case constants.CIEXYZ:
       return [input[0] / 0.95047, input[1], input[2] / 1.08883, input[3]];
     case constants.CIELAB:
-      return [input[0] / 100.0, (input[1] + 128) / 255, (input[2] + 128) / 255, input[3]];
+      return [input[0] / 100.0, (input[1] + 106) / 224, (input[2] + 128) / 243, input[3]];
+    case constants.CIELUV:
+      return [input[0] / 100.0, (input[1] + 103) / 298, (input[2] + 154) / 282, input[3]];
   }
 }
 
