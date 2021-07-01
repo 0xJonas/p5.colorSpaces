@@ -55,7 +55,7 @@ pub fn lab_gamma(val: f32) -> f32 {
                                 x + 0.37609281991938703;
         
         let exponent_new = exponent / 3;
-        let correction_shift = f32::from_bits(((exponent_new as u32 + 127) & 0xff) << 23);
+        let correction_shift = f32::from_bits(((exponent_new as i32 + 127) as u32 & 0xff) << 23);
         let correction_index = ((exponent - exponent_new * 3) + 2) as usize;
         let correction_factor = CORRECTION_FACTOR_3RD_ROOT[correction_index];
         return y * correction_shift * correction_factor;

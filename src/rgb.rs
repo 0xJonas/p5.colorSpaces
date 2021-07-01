@@ -171,7 +171,7 @@ pub fn srgb_digamma(val: f32) -> f32 {
                                 x + 0.5714529292453215;
         
         let exponent_new = exponent / 5;
-        let correction_shift = f32::from_bits(((exponent_new as u32 + 127) & 0xff) << 23);
+        let correction_shift = f32::from_bits(((exponent_new as i32 + 127) as u32 & 0xff) << 23);
         let correction_index = ((exponent - exponent_new * 5) + 4) as usize;
         let correction_factor = CORRECTION_FACTORS_5TH_ROOT[correction_index];
         let fifth_root = y * correction_shift * correction_factor;

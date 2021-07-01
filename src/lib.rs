@@ -1,5 +1,6 @@
 mod rgb;
 mod cielab;
+mod cieluv;
 
 use wasm_bindgen::prelude::*;
 use js_sys::Uint8Array;
@@ -7,6 +8,7 @@ use std::alloc::{alloc, dealloc, Layout};
 
 pub use crate::rgb::*;
 pub use crate::cielab::*;
+pub use crate::cieluv::*;
 
 pub trait TristimulusColor {
     fn get_0(&self) -> f32;
@@ -172,6 +174,52 @@ pub fn convert_memory_lab_to_srgb(ptr: *mut u8, offset: usize, len: usize, white
         let b_s = data[i * 4 + 2] as f32 - 128.0;
 
         let xyz = lab_to_xyz(&CIELabColor(l, a_s, b_s), &white);
+        let SRGBColor(r, g, b) = xyz_to_srgb(&xyz);
+
+        data[i * 4 + 0] = (f32::to_bits((r * 255.0).clamp(0.0, 255.0) + 256.5) >> 15) as u8;
+        data[i * 4 + 1] = (f32::to_bits((g * 255.0).clamp(0.0, 255.0) + 256.5) >> 15) as u8;
+        data[i * 4 + 2] = (f32::to_bits((b * 255.0).clamp(0.0, 255.0) + 256.5) >> 15) as u8;
+    }
+}
+
+#[wasm_bindgen]
+pub fn convert_memory_srgb_to_luv(ptr: *mut u8, offset: usize, len: usize, white_x: f32, white_y: f32, white_yy: f32) {
+    let data: &mut [u8] = unsafe {
+        std::slice::from_raw_parts_mut(ptr.add(offset), len)
+    };
+
+    let white = CIEXYZColor(white_x / white_y * white_yy, white_yy, (1.0 - white_x - white_y) / white_y * white_yy);
+    let (u_prime_w, v_prime_w) = calc_uv_prime(&white);
+
+    for i in 0..(data.len() / 4) {
+        let r = data[i * 4 + 0] as f32 / 255.0;
+        let g = data[i * 4 + 1] as f32 / 255.0;
+        let b = data[i * 4 + 2] as f32 / 255.0;
+
+        let xyz = srgb_to_xyz(&SRGBColor(r, g, b));
+        let CIELuvColor(l, u, v) = xyz_to_luv_precomputed_white(&xyz, white_yy, u_prime_w, v_prime_w);
+
+        data[i * 4 + 0] = (f32::to_bits((l * 2.55).clamp(0.0, 255.0) + 256.5) >> 15) as u8;
+        data[i * 4 + 1] = (f32::to_bits(((u + 103.0) * 0.855704698).clamp(0.0, 255.0) + 256.5) >> 15) as u8;
+        data[i * 4 + 2] = (f32::to_bits(((v + 154.0) * 0.9042553191).clamp(0.0, 255.0) + 256.5) >> 15) as u8;
+    }
+}
+
+#[wasm_bindgen]
+pub fn convert_memory_luv_to_srgb(ptr: *mut u8, offset: usize, len: usize, white_x: f32, white_y: f32, white_yy: f32) {
+    let data: &mut [u8] = unsafe {
+        std::slice::from_raw_parts_mut(ptr.add(offset), len)
+    };
+
+    let white = CIEXYZColor(white_x / white_y * white_yy, white_yy, (1.0 - white_x - white_y) / white_y * white_yy);
+    let (u_prime_white, v_prime_white) = calc_uv_prime(&white);
+
+    for i in 0..(data.len() / 4) {
+        let l = data[i * 4 + 0] as f32 / 2.55;
+        let u = data[i * 4 + 1] as f32 / 0.855704698 - 103.0;
+        let v = data[i * 4 + 2] as f32 / 0.9042553191 - 154.0;
+
+        let xyz = luv_to_xyz_precomputed_white(&CIELuvColor(l, u, v), white_yy, u_prime_white, v_prime_white);
         let SRGBColor(r, g, b) = xyz_to_srgb(&xyz);
 
         data[i * 4 + 0] = (f32::to_bits((r * 255.0).clamp(0.0, 255.0) + 256.5) >> 15) as u8;
