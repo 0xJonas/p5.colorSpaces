@@ -256,6 +256,8 @@ p5.prototype.enterColorSpace = function(colorSpace, whitePoint) {
 
   let conversionFunc;
   switch (colorSpace) {
+    case constants.SRGB:
+      return;
     case constants.CIEXYZ:
       conversionFunc = "convert_memory_srgb_to_xyz";
       break;
@@ -286,13 +288,15 @@ Converts the canvas back to sRGB.
 p5.prototype.exitColorSpace = function() {
   this._cs_checkIfBackendLoaded();
 
-  if (this._cs_mixingColorSpace == this.SRGB){
-    logMessage("exitColorSpace() was called while not inside of a color space.", LEVEL_WARN);
-    return;
-  }
+  // if (this._cs_mixingColorSpace == this.SRGB){
+  //   logMessage("exitColorSpace() was called while not inside of a color space.", LEVEL_WARN);
+  //   return;
+  // }
 
   let conversionFunc;
   switch (this._cs_mixingColorSpace) {
+    case constants.SRGB:
+      return;
     case constants.CIEXYZ:
       conversionFunc = "convert_memory_xyz_to_srgb";
       break;
