@@ -6,6 +6,10 @@ import * as white from "./whitepoints.js";
 import "./colorFunctions.js";
 import "./colorQuery.js";
 
+import vertexShaderSource from "./shaders/vertexShader.glsl";
+import srgb2xyzSource from "./shaders/srgb2xyz.glsl";
+import xyz2srgbSource from "./shaders/xyz2srgb.glsl";
+
 /*
 Error messages and logging
 */
@@ -51,32 +55,6 @@ p5.prototype._cs_backend = null
 p5.prototype._cs_wasmInstance = null;
 p5.prototype._cs_backendLoaded = false;
 p5.prototype._cs_wasmMemory = null;
-p5.prototype._cs_threads = [];
-p5.prototype._cs_semaphore = null;
-
-/*
-Initializes a worker thread by sending it the WASM module and memory.
-
-When a worker thread successfully instatiated a module, it responds with
-a MSG_ACK_WASM_MODULE message. This function exists to make the callback 
-from this message await-able.
-*/
-function initWorker(worker, wasmModule, wasmMemory) {
-  return new Promise(function(resolve, reject) {
-    worker.onmessage = function (e) {
-      if (e.data.id == constants.MSG_ACK_WASM_MODULE) {
-        resolve();
-      } else {
-        reject();
-      }
-    };
-    worker.postMessage({
-      id: constants.MSG_WASM_MODULE,
-      module: wasmModule,
-      memory: wasmMemory
-    })
-  });
-}
 
 /*
 Initializes the library. This function loads the WASM backend as well as setup up
@@ -95,27 +73,6 @@ p5.prototype.loadColorSpaces = async function() {
   this._cs_wasmInstance = await init(wasmModule, this._cs_wasmMemory);
   this._cs_backend = {};
   Object.assign(this._cs_backend, backend);
-
-  // Setup web workers
-  // -1 because the main thread will also keep running
-  const numWorkers = navigator.hardwareConcurrency - 1;
-  const workerURL = new URL("worker.js", import.meta.url);
-  for (let i = 0; i < numWorkers; i++) {
-    const worker = new Worker(workerURL, {name: "thread " + i});
-    await initWorker(worker, wasmModule, wasmMemory);
-    this._cs_threads.push(worker);
-  }
-
-  // Setup a tiny shared buffer to serve as a semaphore. This is used
-  // later to synchronize the main thread and the worker threads.
-  const semaphoreBuffer = new SharedArrayBuffer(4);
-  for (let w of this._cs_threads) {
-    w.postMessage({
-      id: constants.MSG_SEMAPHORE,
-      semaphoreBuffer: semaphoreBuffer
-    });
-  }
-  this._cs_semaphore = new Int32Array(semaphoreBuffer);
 
   // Mark the backend as loaded
   this._cs_backendLoaded = true;
@@ -157,126 +114,170 @@ Conversion functions
 p5.prototype._cs_mixingColorSpace = constants.SRGB;
 p5.prototype._cs_mixingWhitePoint = white.D65_2;
 
-p5.prototype._cs_allocationPtr = 0;
-p5.prototype._cs_allocationLen = 0;
+p5.prototype._cs_conversionPrograms = {};
+p5.prototype._cs_offscreenGraphics = null;
+p5.prototype._cs_canvasTexture = null;
+p5.prototype._cs_webglWidth = 0;
+p5.prototype._cs_webglHeight = 0;
+p5.prototype._cs_vertexShader = null;
+p5.prototype._cs_vertexBuffer = null;
 
-/*
-Ensures that the current memory allocation for the backend has at least the given length.
+function loadShader(gl, source, type) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
 
-p5.colorSpaces allocations a section in WASM memory which is used to hold
-the data to be converted between color spaces. On the JS side, this allocation is represented by
-a pointer (_cs_allocationPtr) and a length (_cs_allocationLen), which are supplied to the
-conversion functions.
-*/
-p5.prototype._cs_ensureAllocationSize = function (len) {
-  if (this._cs_allocationLen < len) {
-    // If we need to re-allocate, free the previous allocation first.
-    if (this._cs_allocationPtr != 0) {
-      this._cs_backend.deallocate_buffer(this._cs_allocationPtr, this._cs_allocationLen);
-    }
-
-    // Allocate new memory
-    this._cs_allocationPtr = this._cs_backend.allocate_buffer(len);
-    this._cs_allocationLen = len;
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const error = gl.getShaderInfoLog(shader);
+    gl.deleteShader(shader);
+    throw new ColorSpacesError(error);
   }
+
+  return shader;
 }
 
-/*
-Frees the current WASM memory allocation. This function is used to clean up when the
-p5.js sketch is removed.
-*/
-p5.prototype._cs_deallocate = function () {
-  if (this._cs_allocation) {
-    this._cs_backend.deallocate_buffer(this._cs_allocationPtr, this._cs_allocation_size);
+function createProgramFromShaders(gl, vertexShader, fragmentShader) {
+  const program = gl.createProgram();
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const error = gl.getProgramInfoLog(program);
+    gl.deleteProgram(program);
+    throw new ColorSpacesError(error);
   }
+
+  return program;
 }
 
-p5.prototype.registerMethod("remove", p5.prototype._cs_deallocate);
+function setupVertexBuffer(gl) {
+  const buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  const vertices = new Float32Array([
+    -1.0, -1.0,
+    -1.0,  1.0,
+     1.0, -1.0,
+     1.0,  1.0
+  ]);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+  return buffer;
+}
 
-/*
-Applies a conversion function to an ImageData object.
+function setupVertexAttribute(gl, program, buffer) {
+  const attribLocation = gl.getAttribLocation(program, "vertexCoords");
+  gl.enableVertexAttribArray(attribLocation);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.vertexAttribPointer(attribLocation, 2, gl.FLOAT, false, 0, 0);
+}
 
-This function uses both the main thread and the worker threads to convert between color spaces.
-*/
-p5.prototype._cs_convertImageData = function (imageData, conversionFunc, whitePoint) {
-  const imageArray = new Uint8Array(imageData.data.buffer);
-  const dataLength = imageArray.length;
-  this._cs_ensureAllocationSize(dataLength);
-
-  const wasmMemoryView = this._cs_backend.get_memory_view(this._cs_allocationPtr, this._cs_allocationLen);
-  wasmMemoryView.set(imageArray);
-
-  const numPixels = dataLength >> 2;
-  const numWorkers = this._cs_threads.length;
-  // pixelsPerThread takes the main thread into account which also does computation
-  const pixelsPerThread = Math.floor(numPixels / (numWorkers + 1));
-
-  // Prepare semaphore. Every time a worker thread has finished, it decrements this values.
-  // After the main thread has processed it's part of the input data, it waits for this
-  // value to become zero to exit the function. Kinda hacky, but it does make
-  // a usually asynchronous process synchronous.
-  Atomics.store(this._cs_semaphore, 0, numWorkers);
-
-  // Start worker threads
-  for (let i = 0; i < numWorkers; i++) {
-    this._cs_threads[i].postMessage({
-      id: constants.MSG_CONVERSION,
-      func: conversionFunc,
-      ptr: this._cs_allocationPtr,
-      offset: i * pixelsPerThread * 4,
-      whitePoint: whitePoint,
-      len: pixelsPerThread * 4
-    });
-  }
-
-  // To the last part of the conversion on the main thread.
-  const mainThreadOffset = numWorkers * pixelsPerThread * 4;
-  const mainThreadLen = dataLength - mainThreadOffset;
-  this._cs_backend[conversionFunc](this._cs_allocationPtr, mainThreadOffset, mainThreadLen, ...whitePoint);
-
-  // Wait for worker threads to finish
-  while(true) {
-    if (Atomics.load(this._cs_semaphore, 0) <= 0) {
+p5.prototype._cs_loadColorSpace = function (colorSpace) {
+  let sourceA;
+  let sourceB;
+  switch(colorSpace) {
+    case constants.CIEXYZ: {
+      sourceA = srgb2xyzSource;
+      sourceB = xyz2srgbSource;
       break;
     }
   }
 
-  imageArray.set(wasmMemoryView);
+  const gl = this._cs_offscreenGraphics.drawingContext;
+
+  let fragmentShaderA;
+  let fragmentShaderB;
+  let programA;
+  let programB;
+  try {
+    fragmentShaderA = loadShader(gl, sourceA, gl.FRAGMENT_SHADER);
+    fragmentShaderB = loadShader(gl, sourceB, gl.FRAGMENT_SHADER);
+
+    if (!this._cs_vertexShader) {
+      this._cs_vertexShader = loadShader(gl, vertexShaderSource, gl.VERTEX_SHADER);
+    }
+
+    programA = createProgramFromShaders(gl, this._cs_vertexShader, fragmentShaderA);
+    programB = createProgramFromShaders(gl, this._cs_vertexShader, fragmentShaderB);
+
+    if (!this._cs_vertexBuffer) {
+      this._cs_vertexBuffer = setupVertexBuffer(gl);
+    }
+
+    setupVertexAttribute(gl, programA, this._cs_vertexBuffer);
+    setupVertexAttribute(gl, programB, this._cs_vertexBuffer);
+
+    this._cs_conversionPrograms[colorSpace] = {
+      toColorSpace: programA,
+      toSRGB: programB
+    };
+  } catch (error) {
+    if (programB) {
+      gl.deleteProgram(programB);
+    }
+    if (programA) {
+      gl.deleteProgram(programA);
+    }
+    if (fragmentShaderB) {
+      gl.deleteShader(fragmentShaderB);
+    }
+    if (fragmentShaderA) {
+      gl.deleteShader(fragmentShaderA);
+    }
+
+    throw error;
+  }
+}
+
+function setupTexture(gl) {
+  const texture = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return texture;
+}
+
+p5.prototype.prepareForColorSpace = function(colorSpace, whitePoint) {
+  if (!this._cs_offscreenGraphics) {
+    this._cs_offscreenGraphics = this.createGraphics(this.width, this.height, this.WEBGL);
+    this._cs_webglWidth = this.width;
+    this._cs_webglHeight = this.height;
+  } else if (this.width != this._cs_webglWidth || this.height != this._cs_webglHeight) {
+    this._cs_offscreenGraphics.resize(this.width, this.height);
+    this._cs_webglWidth = this.width;
+    this._cs_webglHeight = this.height;
+  }
+
+  if (!this._cs_canvasTexture) {
+    this._cs_canvasTexture = setupTexture(this._cs_offscreenGraphics.drawingContext);
+  }
+
+  if (!this._cs_conversionPrograms[colorSpace]) {
+    this._cs_loadColorSpace(colorSpace);
+  }
 }
 
 /*
 Converts the whole canvas into a given color space.
 */
 p5.prototype.enterColorSpace = function(colorSpace, whitePoint) {
-  this._cs_checkIfBackendLoaded();
+  this.prepareForColorSpace(colorSpace, whitePoint);
 
-  if (!whitePoint) {
-    whitePoint = white.D65_2;
-  }
+  const gl = this._cs_offscreenGraphics.drawingContext;
 
-  let conversionFunc;
-  switch (colorSpace) {
-    case constants.SRGB:
-      return;
-    case constants.CIEXYZ:
-      conversionFunc = "convert_memory_srgb_to_xyz";
-      break;
-    case constants.LINEAR_RGB:
-      conversionFunc = "convert_memory_srgb_to_linear_rgb";
-      break;
-    case constants.CIELAB:
-      conversionFunc = "convert_memory_srgb_to_lab";
-      break;
-    case constants.CIELUV:
-      conversionFunc = "convert_memory_srgb_to_luv";
-      break;
-  }
+  gl.useProgram(this._cs_conversionPrograms[colorSpace].toColorSpace);
 
-  const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
-  
-  this._cs_convertImageData(imageData, conversionFunc, whitePoint);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, this._cs_canvasTexture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.drawingContext.canvas);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.flush();
 
-  this.drawingContext.putImageData(imageData, 0, 0);
+  this.push();
+  this.resetMatrix();
+  this.drawingContext.drawImage(this._cs_offscreenGraphics.drawingContext.canvas, 0, 0);
+  this.pop();
 
   this._cs_mixingColorSpace = colorSpace;
   this._cs_mixingWhitePoint = whitePoint;
@@ -286,37 +287,23 @@ p5.prototype.enterColorSpace = function(colorSpace, whitePoint) {
 Converts the canvas back to sRGB.
 */
 p5.prototype.exitColorSpace = function() {
-  this._cs_checkIfBackendLoaded();
+  this.prepareForColorSpace(this._cs_mixingColorSpace, this._cs_mixingWhitePoint);
 
-  // if (this._cs_mixingColorSpace == this.SRGB){
-  //   logMessage("exitColorSpace() was called while not inside of a color space.", LEVEL_WARN);
-  //   return;
-  // }
+  const gl = this._cs_offscreenGraphics.drawingContext;
 
-  let conversionFunc;
-  switch (this._cs_mixingColorSpace) {
-    case constants.SRGB:
-      return;
-    case constants.CIEXYZ:
-      conversionFunc = "convert_memory_xyz_to_srgb";
-      break;
-    case constants.LINEAR_RGB:
-      conversionFunc = "convert_memory_linear_rgb_to_srgb";
-      break;
-    case constants.CIELAB:
-      conversionFunc = "convert_memory_lab_to_srgb";
-      break;
-    case constants.CIELUV:
-      conversionFunc = "convert_memory_luv_to_srgb";
-      break;
-  }
+  gl.useProgram(this._cs_conversionPrograms[this._cs_mixingColorSpace].toSRGB);
 
-  const imageData = this.drawingContext.getImageData(0, 0, this.width, this.height);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, this._cs_canvasTexture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.drawingContext.canvas);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.flush();
+
+  this.push();
+  this.resetMatrix();
+  this.drawingContext.drawImage(this._cs_offscreenGraphics.drawingContext.canvas, 0, 0);
+  this.pop();
   
-  this._cs_convertImageData(imageData, conversionFunc, this._cs_mixingWhitePoint);
-
-  this.drawingContext.putImageData(imageData, 0, 0);
-
   this._cs_mixingColorSpace = this.SRGB;
 }
 
@@ -326,8 +313,6 @@ Sets the current color space and white point without actually converting anythin
 This function should be used when the entire canvas is redrawn each frame.
 */
 p5.prototype.warpToColorSpace = function (colorSpace, whitePoint) {
-  this._cs_checkIfBackendLoaded();
-
   this._cs_mixingColorSpace = colorSpace;
   if (whitePoint) {
     this._cs_mixingWhitePoint = white.D65_2;

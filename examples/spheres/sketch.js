@@ -12,8 +12,12 @@ let spheres = [];
 let alphaSlider;
 let colorSpaceSelector;
 
+const WINDOW_LENGTH_FRAME_RATES = 60;
+let frameRates = new Array(WINDOW_LENGTH_FRAME_RATES).fill(0.0);
+
 function setup() {
   createCanvas(800, 600);
+  // frameRate(30.0)
   alphaSlider = createSlider(0, 1.0, 0.5, 0.0);
   colorSpaceSelector = createSelect();
   colorSpaceSelector.option("sRGB", SRGB);
@@ -38,10 +42,23 @@ function setup() {
   }
 }
 
+function drawFrameRateHistory() {
+  colorMode(RGB);
+  fill(0, 200, 255);
+  for (let i = 0; i < WINDOW_LENGTH_FRAME_RATES; i++) {
+    rect(i * 3, 100 - frameRates[i], 3, frameRates[i]);
+  }
 
+  fill(0);
+  let currentFrameRate = frameRates[WINDOW_LENGTH_FRAME_RATES - 1];
+  text("Current frame rate: " + currentFrameRate, 20, 20);
+  text("Min frame rate: " + Math.min(...frameRates), 20, 40);
+  text("Max frame rate: " + Math.max(...frameRates), 20, 60);
+}
 
 function draw() {
-  warpToColorSpace(colorSpaceSelector.value());
+  // warpToColorSpace(colorSpaceSelector.value());
+  warpToColorSpace(CIEXYZ);
 
   background("white");
   colorMode(HSL);
@@ -62,4 +79,8 @@ function draw() {
   }
 
   exitColorSpace();
+
+  frameRates.push(frameRate());
+  frameRates.shift();
+  drawFrameRateHistory();
 }

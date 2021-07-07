@@ -8,6 +8,7 @@
   },
   "devDependencies": {
     "rollup": "^2.50.1",
+    "rollup-plugin-string": "^3.0.0",
     "mocha": "^9.0.1",
     "chai": "^4.3.4"
   }
